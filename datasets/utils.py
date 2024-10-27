@@ -11,6 +11,7 @@ from torch.utils.data import Dataset as TorchDataset
 import torchvision.transforms as T
 from PIL import Image
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def read_json(fpath):
     """Read json file from a path."""

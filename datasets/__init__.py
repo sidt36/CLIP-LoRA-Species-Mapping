@@ -9,7 +9,7 @@ from .food101 import Food101
 from .oxford_flowers import OxfordFlowers
 from .stanford_cars import StanfordCars
 from .imagenet import ImageNet
-
+from .auto_arborist import AutoArborist
 
 dataset_list = {
                 "oxford_pets": OxfordPets,
@@ -23,11 +23,12 @@ dataset_list = {
                 "oxford_flowers": OxfordFlowers,
                 "stanford_cars": StanfordCars,
                 "imagenet": ImageNet,
+                "auto_arborist":AutoArborist
                 }
 
 
 def build_dataset(dataset, root_path, shots, preprocess):
-    if dataset == 'imagenet':
+    if dataset == 'imagenet' or dataset == 'auto_arborist':
         return dataset_list[dataset](root_path, shots, preprocess)
     else:
         return dataset_list[dataset](root_path, shots)

@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class CustomDataset(Dataset):
     def __init__(self, image_dir, metadata_path, transform=None):
@@ -44,7 +45,7 @@ class CustomDataset(Dataset):
 
 # Path to the JSON file
 
-PROCESSED_DATA_DIR = r'C:\Users\sidt3\Documents\research_tree\SpeciesMapping\data\auto_arborist_processed'
+PROCESSED_DATA_DIR = 'C:/Users/sidt3/Documents/research_tree/SpeciesMapping/data/auto_arborist_processed'
 unique_meta_data_path = os.path.join(PROCESSED_DATA_DIR, 'unique_genus.json')
 
 # Read the JSON file
@@ -60,6 +61,8 @@ class AutoArborist():
     def __init__(self, root, num_shots, preprocess, train_preprocess=None, test_preprocess=None):
         self.dataset_dir = os.path.join(root, self.dataset_dir)
         self.image_dir = os.path.join(self.dataset_dir, 'images')
+        self.train_dir = os.path.join(self.image_dir, 'train')
+        self.test_dir = os.path.join(self.image_dir, 'test')
 
         if train_preprocess is None:
             train_preprocess = transforms.Compose([
@@ -76,9 +79,9 @@ class AutoArborist():
         train_metadata_path = os.path.join(self.dataset_dir, 'train.json')
         test_metadata_path = os.path.join(self.dataset_dir, 'test.json')
 
-        self.train_x = CustomDataset(self.image_dir, train_metadata_path, transform=train_preprocess)
-        self.val = CustomDataset(self.image_dir, train_metadata_path, transform=preprocess)
-        self.test = CustomDataset(self.image_dir, test_metadata_path, transform=test_preprocess)
+        self.train_x = CustomDataset(self.train_dir, train_metadata_path, transform=train_preprocess)
+        self.val = CustomDataset(self.train_dir, train_metadata_path, transform=preprocess)
+        self.test = CustomDataset(self.test_dir, test_metadata_path, transform=test_preprocess)
 
         num_shots_val = min(4, num_shots)
         
@@ -101,6 +104,11 @@ class AutoArborist():
             targets.extend([label] * min(len(items), num_shots))
             targets_val.extend([label] * min(len(items), num_shots_val))
             
+        self.imgs = torch.stack([train_preprocess(Image.open(img).convert('RGB')) for img in imgs]).to(device)
+        self.targets = torch.tensor(targets).to(device)
+        self.imgs_val = torch.stack([train_preprocess(Image.open(img).convert('RGB')) for img in imgs_val]).to(device)
+        self.targets_val = torch.tensor(targets_val).to(device)
+                    
         self.train_x.image_paths = imgs
         self.train_x.labels = targets
         
