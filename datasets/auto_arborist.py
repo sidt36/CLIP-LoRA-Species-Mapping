@@ -14,6 +14,21 @@ from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+PROCESSED_DATA_DIR = 'C:/Users/sidt3/Documents/research_tree/SpeciesMapping/data/auto_arborist_processed'
+unique_meta_data_path = os.path.join(PROCESSED_DATA_DIR, 'unique_genus.json')
+
+# Read the JSON file
+with open(unique_meta_data_path, 'r') as f:
+    meta_data_unique = json.load(f)
+
+auto_arborist_genus_classes = meta_data_unique
+auto_arborist_templates = ["a photo of a {}."]
+class DataSample:
+    def __init__(self, img, label,impath):
+        self.img = img
+        self.label = label
+        self.impath = impath
+
 class CustomDataset(Dataset):
     def __init__(self, image_dir, metadata_path, transform=None):
         self.image_dir = image_dir
@@ -25,7 +40,7 @@ class CustomDataset(Dataset):
 
         # Extract image paths and labels
         self.image_paths = [os.path.join(self.image_dir, item['tree_id'] + '_streetlevel.png') for item in self.metadata]
-        self.labels = [item['genus'] for item in self.metadata]
+        self.labels = [auto_arborist_genus_classes.index(item['genus']) for item in self.metadata]
 
     def __len__(self):
         return len(self.image_paths)
@@ -41,19 +56,7 @@ class CustomDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        return image, label
-
-# Path to the JSON file
-
-PROCESSED_DATA_DIR = 'C:/Users/sidt3/Documents/research_tree/SpeciesMapping/data/auto_arborist_processed'
-unique_meta_data_path = os.path.join(PROCESSED_DATA_DIR, 'unique_genus.json')
-
-# Read the JSON file
-with open(unique_meta_data_path, 'r') as f:
-    meta_data_unique = json.load(f)
-
-auto_arborist_genus_classes = meta_data_unique
-auto_arborist_templates = ["a photo of a {}."]
+        return DataSample(img=image, label=label, impath=img_path)
 
 class AutoArborist():
     dataset_dir = 'auto_arborist_processed'
@@ -104,19 +107,11 @@ class AutoArborist():
             targets.extend([label] * min(len(items), num_shots))
             targets_val.extend([label] * min(len(items), num_shots_val))
             
-        self.imgs = torch.stack([train_preprocess(Image.open(img).convert('RGB')) for img in imgs]).to(device)
-        self.targets = torch.tensor(targets).to(device)
-        self.imgs_val = torch.stack([train_preprocess(Image.open(img).convert('RGB')) for img in imgs_val]).to(device)
-        self.targets_val = torch.tensor(targets_val).to(device)
-                    
         self.train_x.image_paths = imgs
         self.train_x.labels = targets
         
         self.val.image_paths = imgs_val
         self.val.labels = targets_val
 
-    def get_dataloaders(self, batch_size, shuffle=True):
-        train_loader = DataLoader(self.train_x, batch_size=batch_size, shuffle=shuffle)
-        val_loader = DataLoader(self.val, batch_size=batch_size, shuffle=False)
-        test_loader = DataLoader(self.test, batch_size=batch_size, shuffle=False)
-        return train_loader, val_loader, test_loader
+        # Convert targets to tensor
+        self.targets = torch.tensor(targets, dtype=torch.long).to(device)

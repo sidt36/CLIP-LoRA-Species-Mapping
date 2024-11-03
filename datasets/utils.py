@@ -316,7 +316,7 @@ class DatasetWrapper(TorchDataset):
 
         output = {
             'label': item.label,
-            'domain': item.domain,
+            # 'domain': item.domain,
             'impath': item.impath
         }
 

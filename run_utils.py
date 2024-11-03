@@ -23,6 +23,7 @@ def get_arguments():
     parser.add_argument('--dataset', type=str, default='dtd')
     parser.add_argument('--shots', default=16, type=int)
     # Model arguments
+    #Important: The backbone should be the same as the one used to train the LoRA modules
     parser.add_argument('--backbone', default='ViT-B/16', type=str)
     # Training arguments
     parser.add_argument('--lr', default=2e-4, type=float)
@@ -35,10 +36,11 @@ def get_arguments():
     parser.add_argument('--r', default=2, type=int, help='the rank of the low-rank matrices')
     parser.add_argument('--alpha', default=1, type=int, help='scaling (see LoRA paper)')
     parser.add_argument('--dropout_rate', default=0.25, type=float, help='dropout rate applied before the LoRA module')
-    
+    # Where the LoRA modules will be saved
     parser.add_argument('--save_path', default=None, help='path to save the lora modules after training, not saved if None')
+    #Where the LoRA modules will be loaded from for evaluation
     parser.add_argument('--filename', default='lora_weights', help='file name to save the lora weights (.pt extension will be added)')
-    
+    #Only evaluate the LoRA modules
     parser.add_argument('--eval_only', default=False, action='store_true', help='only evaluate the LoRA modules (save_path should not be None)')
     args = parser.parse_args()
 
@@ -46,3 +48,6 @@ def get_arguments():
     
 
         
+# Sample run function with eval on
+
+# 
