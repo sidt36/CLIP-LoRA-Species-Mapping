@@ -12,7 +12,7 @@ def evaluate_lora(args, clip_model, loader, dataset):
         template = dataset.template[0] 
         texts = [template.format(classname.replace('_', ' ')) for classname in dataset.classnames]
         with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-            texts = clip.tokenize(texts).cuda()
+            texts = clip.tokenize(texts).to(device)
             class_embeddings = clip_model.encode_text(texts)
         text_features = class_embeddings/class_embeddings.norm(dim=-1, keepdim=True)
 
@@ -20,7 +20,7 @@ def evaluate_lora(args, clip_model, loader, dataset):
     tot_samples = 0
     with torch.no_grad():
         for i, (images, target) in enumerate(loader):
-            images, target = images.cuda(), target.cuda()
+            images, target = images.to(device), target.to(device)
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 image_features = clip_model.encode_image(images)
             image_features = image_features/image_features.norm(dim=-1, keepdim=True)

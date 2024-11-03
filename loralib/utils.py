@@ -120,7 +120,10 @@ def apply_lora(args, clip_model):
                         list_lora_layers.append(new_multi_head_lora)
 
     if args.encoder == 'vision' or args.encoder == 'both':
-        indices = INDEX_POSITIONS_VISION[args.backbone][args.position]
+        if(args.backbone == "bio_clip"):
+            indices = INDEX_POSITIONS_VISION["ViT-B/16"][args.position]
+        else:
+            indices = INDEX_POSITIONS_VISION[args.backbone][args.position]
         vision_encoder = clip_model.visual.transformer
         for i, block in enumerate(vision_encoder.resblocks):
             print(f"Residual Attention Block {i}: {block}")

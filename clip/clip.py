@@ -34,7 +34,7 @@ _MODELS = {
     "ViT-B/32": "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt",
     "ViT-B/16": "https://openaipublic.azureedge.net/clip/models/5806e77cd80f8b59890b7e101eabd078d9fb84e6937f9e85e4ecb61988df416f/ViT-B-16.pt",
 "ViT-L/14": "https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt",
-
+"bio_clip": "models/bio_clip_model_weights.pt"
 }
 
 
@@ -115,7 +115,11 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
         A torchvision transform that converts a PIL image into a tensor that the returned model can take as its input
     """
     if name in _MODELS:
-        model_path = _download(_MODELS[name], download_root or os.path.expanduser("~/.cache/clip"))
+        if(name != "bio_clip"):
+            model_path = _download(_MODELS[name], download_root or os.path.expanduser("~/.cache/clip"))
+        elif(name == "bio_clip"):
+            model_path = _MODELS[name]
+            # model_path_Vit = _download(_MODELS["ViT-B/16"], download_root or os.path.expanduser("~/.cache/clip"))
     elif os.path.isfile(name):
         model_path = name
     else:
@@ -123,20 +127,41 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
 
     try:
         # loading JIT archive
-        model = torch.jit.load(model_path, map_location=device if jit else "cpu").eval()
-        state_dict = None
+        if(name != "bio_clip"):
+            model = torch.jit.load(model_path, map_location=device if jit else "cpu").eval()
+            state_dict = None
     except RuntimeError:
         # loading saved state dict
         if jit:
             warnings.warn(f"File {model_path} is not a JIT archive. Loading as a state dict instead")
             jit = False
         state_dict = torch.load(model_path, map_location="cpu")
+    try:
+        # loading JIT archive
+        if(name == "bio_clip"):
+            # model = torch.load(model_path_Vit, map_location=device if jit else "cpu").eval()
+            state_dict = torch.load(model_path, map_location="cpu")
+            
+            if jit:
+                warnings.warn(f"File {model_path} is not a JIT archive. Loading as a state dict instead")
+                jit = False
+
+    except RuntimeError:
+        warnings.warn(f"File {model_path} has invalid weights.")
+        # loading saved state dict
+        # state_dict = torch.load(model_path, map_location="cpu")
 
     if not jit:
-        model = build_model(state_dict or model.state_dict()).to(device)
-        if str(device) == "cpu":
-            model.float()
-        return model, _transform(model.visual.input_resolution)
+        if name == "bio_clip":
+            model = build_model(state_dict or model.state_dict()).to(device)
+            if str(device) == "cpu":
+                model.float()
+            return model, _transform(model.visual.input_resolution)
+        else:
+            model = build_model(state_dict or model.state_dict()).to(device)
+            if str(device) == "cpu":
+                model.float()
+            return model, _transform(model.visual.input_resolution)
 
     # patch the device names
     device_holder = torch.jit.trace(lambda: torch.ones([]).to(torch.device(device)), example_inputs=[])
@@ -186,6 +211,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
         patch_float(model.encode_image)
         patch_float(model.encode_text)
 
+        model.to(device)
         model.float()
 
     return model, _transform(model.input_resolution.item())
