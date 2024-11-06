@@ -9,7 +9,7 @@ def download_bioclip_model(save_name: str):
     torch.save(preprocess_train, f"{save_name}_preprocess_train.pt")
     torch.save(preprocess_val, f"{save_name}_preprocess_val.pt")
     torch.save(tokenizer, f"{save_name}_tokenizer.pt")
-    
+
 
 
 

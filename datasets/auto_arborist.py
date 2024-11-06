@@ -14,7 +14,7 @@ from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-PROCESSED_DATA_DIR = 'C:/Users/sidt3/Documents/research_tree/SpeciesMapping/data/auto_arborist_processed'
+PROCESSED_DATA_DIR = '/app/SpeciesMapping/data/auto_arborist_processed'
 unique_meta_data_path = os.path.join(PROCESSED_DATA_DIR, 'unique_genus.json')
 
 # Read the JSON file
