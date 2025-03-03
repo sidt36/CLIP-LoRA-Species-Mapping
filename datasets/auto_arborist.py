@@ -14,18 +14,7 @@ from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-<<<<<<< HEAD
 # Define global variables to maintain compatibility with original code
-=======
-PROCESSED_DATA_DIR = '/app/SpeciesMapping/data/auto_arborist_processed'
-unique_meta_data_path = os.path.join(PROCESSED_DATA_DIR, 'unique_genus.json')
-
-# Read the JSON file
-with open(unique_meta_data_path, 'r') as f:
-    meta_data_unique = json.load(f)
-
-auto_arborist_genus_classes = meta_data_unique
->>>>>>> fafe7df80addf18609c03cf10afa0f4e649e890e
 auto_arborist_templates = ["a photo of a {}."]
 
 class DataSample:
