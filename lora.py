@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from utils import *
 
@@ -34,7 +35,7 @@ def evaluate_lora(args, clip_model, loader, dataset):
 
 def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, test_loader):
     
-    VALIDATION = False
+    VALIDATION = True  # Enable validation by default
     
     # Textual features
     print("\nGetting textual features as CLIP's classifier.")
@@ -70,30 +71,40 @@ def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, t
         return
 
     mark_only_lora_as_trainable(clip_model)
-    total_iters = args.n_iters * args.shots
+    
+    # Use n_iters as the number of epochs for full dataset mode
+    num_epochs = args.n_iters
+    
+    # Calculate total iterations based on epochs for scheduler (epochs * batches per epoch)
+    total_steps = num_epochs * len(train_loader)
     
     optimizer = torch.optim.AdamW(get_lora_parameters(clip_model), weight_decay=1e-2, betas=(0.9, 0.999), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_iters, eta_min=1e-6)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_steps, eta_min=1e-6)
     
     best_acc_val, best_acc_test = 0., 0.
     best_epoch_val = 0
     
     # training LoRA
     scaler = torch.cuda.amp.GradScaler()
-    count_iters = 0
-    finish = False
-    while count_iters < total_iters:
+    
+    for epoch in range(num_epochs):
         clip_model.train()
         acc_train = 0
         tot_samples = 0
         loss_epoch = 0.
+        
+        print(f"\nEpoch {epoch+1}/{num_epochs}")
+        
         if args.encoder == 'vision': 
             text_features = textual_features.t().half()
-        for i, (images, target) in enumerate(tqdm(train_loader)):
+            
+        # Use tqdm for progress bar during training
+        for i, (images, target) in enumerate(tqdm(train_loader, desc=f"Training epoch {epoch+1}")):
             
             template = dataset.template[0]
             texts = [template.format(classname.replace('_', ' ')) for classname in dataset.classnames]
             images, target = images.to(device), target.to(device)
+            
             if args.encoder == 'text' or args.encoder == 'both':
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     texts = clip.tokenize(texts).to(device)
@@ -107,6 +118,7 @@ def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, t
                 with torch.no_grad():
                     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                         image_features = clip_model.encode_image(images)
+                        
             image_features = image_features/image_features.norm(dim=-1, keepdim=True)
             
             cosine_similarity = logit_scale * image_features @ text_features.t()
@@ -114,38 +126,53 @@ def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, t
             acc_train += cls_acc(cosine_similarity, target) * target.shape[0]
             loss_epoch += loss.item() * target.shape[0]
             tot_samples += target.shape[0]
+            
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
-
             scaler.update()
             scheduler.step()
             
-            count_iters += 1
-            
-            if count_iters == total_iters:
-                break
-            
-        if count_iters < total_iters:
-            acc_train /= tot_samples
-            loss_epoch /= tot_samples
-            current_lr = scheduler.get_last_lr()[0]
-            print('LR: {:.6f}, Acc: {:.4f}, Loss: {:.4f}'.format(current_lr, acc_train, loss_epoch))
-
+        # Epoch complete - report metrics
+        acc_train /= tot_samples
+        loss_epoch /= tot_samples
+        current_lr = scheduler.get_last_lr()[0]
+        print('Epoch: {}/{}, LR: {:.6f}, Train Acc: {:.4f}, Loss: {:.4f}'.format(
+            epoch+1, num_epochs, current_lr, acc_train, loss_epoch))
         
-        # Eval
+        # Validation after each epoch
         if VALIDATION:
             clip_model.eval()
             acc_val = evaluate_lora(args, clip_model, val_loader, dataset)
-            print("**** Val accuracy: {:.2f}. ****\n".format(acc_val))
-        
+            print("**** Epoch {}/{} - Validation accuracy: {:.2f}. ****".format(epoch+1, num_epochs, acc_val))
+            
+            # Save best model based on validation accuracy
+            if acc_val > best_acc_val:
+                best_acc_val = acc_val
+                best_epoch_val = epoch + 1
+                
+                # Evaluate on test set
+                acc_test = evaluate_lora(args, clip_model, test_loader, dataset)
+                best_acc_test = acc_test
+                print("**** New best model! Test accuracy: {:.2f}. ****".format(acc_test))
+                
+                # Save best model
+                if args.save_path is not None:
+                    save_path = f"{args.save_path}_best"
+                    save_lora(args, list_lora_layers, save_path)
+                    print(f"Best model saved to {save_path}")
     
-    acc_test = evaluate_lora(args, clip_model, test_loader, dataset)
-    print("**** Final test accuracy: {:.2f}. ****\n".format(acc_test))
+    # Final evaluation on test set
+    clip_model.eval()
+    final_acc_test = evaluate_lora(args, clip_model, test_loader, dataset)
+    print("\n**** Training complete ****")
+    print("**** Best validation accuracy: {:.2f} (epoch {}) ****".format(best_acc_val, best_epoch_val))
+    print("**** Best model test accuracy: {:.2f} ****".format(best_acc_test))
+    print("**** Final model test accuracy: {:.2f} ****".format(final_acc_test))
     
-    if args.save_path != None:
+    # Save final model
+    if args.save_path is not None:
         save_lora(args, list_lora_layers)
-    return
-            
+        print(f"Final model saved to {args.save_path}")
     
-            
+    return
