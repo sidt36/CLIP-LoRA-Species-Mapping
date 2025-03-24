@@ -10,7 +10,8 @@ from .oxford_flowers import OxfordFlowers
 from .stanford_cars import StanfordCars
 from .imagenet import ImageNet
 from .auto_arborist import AutoArborist
-
+from .inat import INaturalist
+from .google_cc import GoogleCCArborist
 dataset_list = {
                 "oxford_pets": OxfordPets,
                 "eurosat": EuroSAT,
@@ -23,12 +24,14 @@ dataset_list = {
                 "oxford_flowers": OxfordFlowers,
                 "stanford_cars": StanfordCars,
                 "imagenet": ImageNet,
-                "auto_arborist":AutoArborist
+                "auto_arborist":AutoArborist,
+                "inat" : INaturalist,
+                "google_cc": GoogleCCArborist,
                 }
 
 
 def build_dataset(dataset, root_path, shots, preprocess):
-    if dataset == 'imagenet' or dataset == 'auto_arborist':
+    if dataset == 'imagenet' or dataset == 'auto_arborist' or dataset == 'google_cc' or dataset == 'inat': 
         return dataset_list[dataset](root_path, shots, preprocess)
     else:
         return dataset_list[dataset](root_path, shots)
