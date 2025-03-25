@@ -159,7 +159,7 @@ def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, t
                 # Save best model
                 if args.save_path is not None:
                     save_path = f"{args.save_path}_best"
-                    save_lora(args, list_lora_layers, save_path)
+                    save_lora(args, list_lora_layers)
                     print(f"Best model saved to {save_path}")
     
     # Final evaluation on test set
