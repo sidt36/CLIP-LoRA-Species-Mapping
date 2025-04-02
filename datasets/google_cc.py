@@ -224,7 +224,7 @@ class GoogleCCTreeDataset(Dataset):
                 
                 # Return the sample in format expected by evaluation function
                 # This matches what DataLoader unpacks as (images, target)
-                return data_sample.img, data_sample.label
+                return data_sample
                 
             except (FileNotFoundError, IOError) as e:
                 print(f"Warning: Image not found (attempt {retry + 1}/{max_retries}): {str(e)}")
