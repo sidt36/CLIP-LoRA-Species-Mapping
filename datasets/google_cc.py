@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 import numpy as np
+import gc
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -92,6 +93,35 @@ class GoogleCCTreeDataset(Dataset):
             self.image_paths.append(str(sample['image_path']))
             self.labels.append(self.species_to_idx[sample['species']])
 
+        # Pre-check image paths to remove invalid images
+        self._verify_images()
+
+    def _verify_images(self):
+        """Verify all images exist and are valid before training starts"""
+        valid_samples = []
+        valid_paths = []
+        valid_labels = []
+        
+        for i, sample in enumerate(self.samples):
+            image_path = sample['image_path']
+            if os.path.exists(image_path):
+                try:
+                    # Just try opening the image to verify it's valid
+                    with Image.open(image_path) as img:
+                        pass
+                    valid_samples.append(sample)
+                    valid_paths.append(self.image_paths[i])
+                    valid_labels.append(self.labels[i])
+                except Exception as e:
+                    print(f"Removing invalid image: {image_path}, Error: {str(e)}")
+            else:
+                print(f"Removing non-existent image: {image_path}")
+        
+        self.samples = valid_samples
+        self.image_paths = valid_paths
+        self.labels = valid_labels
+        print(f"Verified {len(self.samples)} valid images for {self.split} split")
+
     def _load_all_data(self):
         """Load all filtered images data."""
         for species, images in self.filtered_data.items():
@@ -166,8 +196,13 @@ class GoogleCCTreeDataset(Dataset):
     
     def __getitem__(self, idx: int):
         max_retries = 3
+        retried_indices = set()
+        original_idx = idx
         
         for retry in range(max_retries):
+            if len(retried_indices) >= min(len(self), 10):  # Prevent too many retries
+                break
+                
             try:
                 sample = self.samples[idx]
                 image_path = sample['image_path']
@@ -184,22 +219,37 @@ class GoogleCCTreeDataset(Dataset):
                 # Get label
                 label = self.species_to_idx[sample['species']]
                 
-                # Return using DataSample format for compatibility with Auto Arborist
-                return DataSample(img=image, label=label, impath=str(image_path))
+                # Create DataSample object but return tuple as expected by DataLoader
+                data_sample = DataSample(img=image, label=label, impath=str(image_path))
+                
+                # Return the sample in format expected by evaluation function
+                # This matches what DataLoader unpacks as (images, target)
+                return data_sample.img, data_sample.label
                 
             except (FileNotFoundError, IOError) as e:
                 print(f"Warning: Image not found (attempt {retry + 1}/{max_retries}): {str(e)}")
-                idx = (idx + 1) % len(self)
+                retried_indices.add(idx)
+                # Try a different random index instead of sequential next
+                new_indices = [i for i in range(len(self)) if i not in retried_indices]
+                if not new_indices:
+                    break
+                idx = random.choice(new_indices)
                 continue
             except Exception as e:
-                print(f"Unexpected error loading image: {str(e)}")
-                idx = (idx + 1) % len(self)
+                print(f"Unexpected error loading image {image_path}: {str(e)}")
+                retried_indices.add(idx)
+                # Try a different random index
+                new_indices = [i for i in range(len(self)) if i not in retried_indices]
+                if not new_indices:
+                    break
+                idx = random.choice(new_indices)
                 continue
         
-        # Default return for failed loads
-        default_image = torch.zeros((3, 224, 224))
+        # Default return for failed loads - using a small tensor to minimize memory usage
+        print(f"Failed to load image after {max_retries} attempts, using default zero tensor")
+        default_image = torch.zeros((3, 224, 224), dtype=torch.float32)
         default_label = 0
-        return DataSample(img=default_image, label=default_label, impath="failed_load")
+        return default_image, default_label
 
 class GoogleCCArborist():
     """
@@ -346,7 +396,13 @@ if __name__ == "__main__":
     print(f"Validation samples: {len(dataset.val)}")
     print(f"Test samples: {len(dataset.test)}")
     
-    # Create dataloaders if needed
+    # Memory cleanup before creating dataloaders
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    # Create dataloaders with reduced number of workers for validation and test
     train_loader = DataLoader(dataset.train_x, batch_size=32, shuffle=True, num_workers=4)
-    val_loader = DataLoader(dataset.val, batch_size=32, shuffle=False, num_workers=4)
-    test_loader = DataLoader(dataset.test, batch_size=32, shuffle=False, num_workers=4)
+    val_loader = DataLoader(dataset.val, batch_size=16, shuffle=False, num_workers=1)  # Reduced workers and batch size
+    test_loader = DataLoader(dataset.test, batch_size=16, shuffle=False, num_workers=1)  # Reduced workers and batch size
+
