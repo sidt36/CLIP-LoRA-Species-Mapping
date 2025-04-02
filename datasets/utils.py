@@ -360,7 +360,7 @@ def build_data_loader(
     is_train=True,
     shuffle=False,
     dataset_wrapper=None,
-    num_workers=8
+    num_workers=4
 ):
 
     if dataset_wrapper is None:
