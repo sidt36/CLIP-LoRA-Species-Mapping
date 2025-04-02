@@ -27,11 +27,11 @@ def main():
     dataset = build_dataset(args.dataset, args.root_path, args.shots, preprocess)
     
     if args.dataset == 'imagenet':
-        val_loader = torch.utils.data.DataLoader(dataset.val, batch_size=256, num_workers=8, shuffle=False, pin_memory=True)
-        test_loader = torch.utils.data.DataLoader(dataset.test, batch_size=256, num_workers=8, shuffle=False, pin_memory=True)
+        val_loader = torch.utils.data.DataLoader(dataset.val, batch_size=256, num_workers=4, shuffle=False, pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(dataset.test, batch_size=256, num_workers=4, shuffle=False, pin_memory=True)
     else:
-        val_loader = build_data_loader(data_source=dataset.val, batch_size=256, is_train=False, tfm=preprocess, shuffle=False,  num_workers=8)
-        test_loader = build_data_loader(data_source=dataset.test, batch_size=256, is_train=False, tfm=preprocess, shuffle=False,  num_workers=8)
+        val_loader = build_data_loader(data_source=dataset.val, batch_size=256, is_train=False, tfm=preprocess, shuffle=False,  num_workers=4)
+        test_loader = build_data_loader(data_source=dataset.test, batch_size=256, is_train=False, tfm=preprocess, shuffle=False,  num_workers=4)
         
     train_loader = None
     if not args.eval_only:
@@ -43,9 +43,9 @@ def main():
         ])
         
         if args.dataset == 'imagenet':
-            train_loader = torch.utils.data.DataLoader(dataset.train_x, batch_size=args.batch_size, num_workers=8, shuffle=True, pin_memory=True)
+            train_loader = torch.utils.data.DataLoader(dataset.train_x, batch_size=args.batch_size, num_workers=4, shuffle=True, pin_memory=True)
         else:
-            train_loader = build_data_loader(data_source=dataset.train_x, batch_size=args.batch_size, tfm=train_tranform, is_train=True, shuffle=True, num_workers=8)
+            train_loader = build_data_loader(data_source=dataset.train_x, batch_size=args.batch_size, tfm=train_tranform, is_train=True, shuffle=True, num_workers=4)
 
     run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, test_loader)
 
