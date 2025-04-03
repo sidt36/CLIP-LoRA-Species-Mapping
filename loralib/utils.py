@@ -137,7 +137,8 @@ def apply_lora(args, clip_model):
     return list_lora_layers
 
 
-def save_lora(args, list_lora_layers):
+def save_lora(args, list_lora_layers, clip_model=None):
+    # Original LoRA weights saving logic
     weights = {}
     for i, layer in enumerate(list_lora_layers):
         layer_weights = {}
@@ -177,14 +178,22 @@ def save_lora(args, list_lora_layers):
         'metadata': metadata
     }
 
-    # to manage names like ViT-B/16
+    # Create directory path
     backbone = args.backbone.replace('/', '').replace('-', '').lower()
     save_dir = f'{args.save_path}/{backbone}/{args.dataset}/{args.shots}shots/seed{args.seed}'
     os.makedirs(save_dir, exist_ok=True)
 
-    save_path = f'{save_dir}/{args.filename}.pt'
-    torch.save(save_data, save_path)
-    print(f'LoRA weights saved to {save_path}')
+    # Save LoRA weights in original format
+    lora_save_path = f'{save_dir}/{args.filename}.pt'
+    torch.save(save_data, lora_save_path)
+    print(f'LoRA weights saved to {lora_save_path}')
+    
+    # Also save full model state if clip_model is provided
+    if clip_model is not None:
+        full_model_path = f'{save_dir}/{args.filename}_full.pth'
+        torch.save(clip_model.state_dict(), full_model_path)
+        print(f'Full model state dict saved to {full_model_path} (compatible with evaluation script)')
+
 
 
 def load_lora(args, list_lora_layers):
