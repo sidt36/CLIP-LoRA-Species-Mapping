@@ -8,6 +8,7 @@ from loralib.utils import mark_only_lora_as_trainable, apply_lora, get_lora_para
 from loralib import layers as lora_layers
 from sklearn.metrics import classification_report, precision_recall_fscore_support, accuracy_score
 import numpy as np
+import json
 
 def evaluate_lora(args, clip_model, loader, dataset):
     
@@ -55,6 +56,20 @@ def evaluate_lora(args, clip_model, loader, dataset):
     )
     
     # Print detailed metrics
+    # Save metrics to a JSON file
+    metrics = {
+        "accuracy": acc,
+        "macro_precision": precision_macro,
+        "macro_recall": recall_macro,
+        "macro_f1": f1_macro,
+        "weighted_precision": precision_weighted,
+        "weighted_recall": recall_weighted,
+        "weighted_f1": f1_weighted
+    }
+    with open("evaluation_metrics.json", "w") as f:
+        json.dump(metrics, f, indent=4)
+
+    # Print metrics
     print(f"\nEvaluation Metrics:")
     print(f"Accuracy: {acc:.4f}")
     print(f"Macro Precision: {precision_macro:.4f}")
