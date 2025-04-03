@@ -66,7 +66,7 @@ def evaluate_lora(args, clip_model, loader, dataset):
         "weighted_recall": recall_weighted,
         "weighted_f1": f1_weighted
     }
-    with open("evaluation_metrics.json", "w") as f:
+    with open("/app/CLIP-LoRA-Species-Mapping.json", "w") as f:
         json.dump(metrics, f, indent=4)
 
     # Print metrics
