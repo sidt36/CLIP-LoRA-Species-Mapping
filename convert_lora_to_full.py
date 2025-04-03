@@ -6,11 +6,6 @@ import clip
 def convert_lora_to_merged_model(lora_path, output_path, backbone="ViT-B/32"):
     """
     Convert a LoRA checkpoint to a merged model checkpoint compatible with standard CLIP evaluation.
-    
-    Args:
-        lora_path: Path to the LoRA checkpoint (.pt file)
-        output_path: Path to save the merged model (.pth file)
-        backbone: The CLIP backbone architecture (default: ViT-B/32)
     """
     # Check if input file exists
     if not os.path.exists(lora_path):
@@ -51,14 +46,27 @@ def convert_lora_to_merged_model(lora_path, output_path, backbone="ViT-B/32"):
     print(f"Loading base CLIP model {backbone}")
     clip_model, _ = clip.load(backbone, device=device)
     
-    # Define MultiheadAttentionLoRA class inline
+    # Inspect the MultiheadAttention structure
+    # Find a MultiheadAttention module to check its structure
+    found_mha = False
+    for name, module in clip_model.named_modules():
+        if isinstance(module, torch.nn.MultiheadAttention):
+            print(f"Found MultiheadAttention at {name}")
+            print(f"MultiheadAttention attributes: {dir(module)}")
+            found_mha = True
+            break
+    
+    if not found_mha:
+        print("WARNING: No MultiheadAttention module found. Check model structure.")
+    
+    # Modified LoRA Layer for in_proj style MHA
     class LoRALayer(torch.nn.Module):
         def __init__(self, linear_layer, rank=4, alpha=1.0):
             super().__init__()
-            self.in_features = linear_layer.in_features
-            self.out_features = linear_layer.out_features
+            self.in_features = linear_layer.in_features if hasattr(linear_layer, 'in_features') else linear_layer.weight.shape[1]
+            self.out_features = linear_layer.out_features if hasattr(linear_layer, 'out_features') else linear_layer.weight.shape[0]
             self.weight = linear_layer.weight
-            self.bias = linear_layer.bias
+            self.bias = linear_layer.bias if hasattr(linear_layer, 'bias') else None
             
             # LoRA parameters
             self.lora_rank = rank
@@ -69,35 +77,12 @@ def convert_lora_to_merged_model(lora_path, output_path, backbone="ViT-B/32"):
             self.w_lora_A = torch.nn.Parameter(torch.zeros((rank, self.in_features)))
             self.w_lora_B = torch.nn.Parameter(torch.zeros((self.out_features, rank)))
     
-    class PlainMultiheadAttentionLoRA(torch.nn.Module):
-        def __init__(self, mha, enable_lora="qkvo", r=4, lora_alpha=1, dropout_rate=0.0):
-            super().__init__()
-            self.embed_dim = mha.embed_dim
-            self.num_heads = mha.num_heads
-            self.dropout = mha.dropout
-            self.batch_first = mha.batch_first
-            self.head_dim = mha.head_dim if hasattr(mha, 'head_dim') else self.embed_dim // self.num_heads
-            
-            # Apply LoRA to specified projections
-            if 'q' in enable_lora:
-                self.q_proj = LoRALayer(mha.q_proj, rank=r, alpha=lora_alpha)
-            else:
-                self.q_proj = mha.q_proj
-                
-            if 'k' in enable_lora:
-                self.k_proj = LoRALayer(mha.k_proj, rank=r, alpha=lora_alpha)
-            else:
-                self.k_proj = mha.k_proj
-                
-            if 'v' in enable_lora:
-                self.v_proj = LoRALayer(mha.v_proj, rank=r, alpha=lora_alpha)
-            else:
-                self.v_proj = mha.v_proj
-                
-            if 'o' in enable_lora:
-                self.proj = LoRALayer(mha.out_proj, rank=r, alpha=lora_alpha)
-            else:
-                self.proj = mha.out_proj
+    # Helper function to merge weights
+    def merge_weights(layer, lora_A, lora_B, scaling):
+        # Compute the LoRA contribution: B*A scaled by alpha/r
+        lora_contribution = (lora_B @ lora_A) * scaling
+        # Add to the original weight
+        layer.weight.data += lora_contribution
     
     # Define layer indices based on position
     INDEX_POSITIONS_TEXT = {
@@ -126,8 +111,10 @@ def convert_lora_to_merged_model(lora_path, output_path, backbone="ViT-B/32"):
         }
     }
     
-    # Apply LoRA layers
-    list_lora_layers = []
+    # Direct weight merging approach
+    print("Applying LoRA weights directly to model weights...")
+    
+    layer_idx = 0
     
     # Apply to text encoder if specified
     if args.encoder in ['text', 'both']:
@@ -137,13 +124,61 @@ def convert_lora_to_merged_model(lora_path, output_path, backbone="ViT-B/32"):
             if i in indices:
                 for name, submodule in block.named_children():
                     if isinstance(submodule, torch.nn.MultiheadAttention):
-                        print(f"Applying LoRA to text block {i}, {name}")
-                        new_module = PlainMultiheadAttentionLoRA(
-                            submodule, enable_lora=args.params, r=args.r, 
-                            lora_alpha=args.alpha, dropout_rate=args.dropout_rate
-                        )
-                        setattr(block, name, new_module)
-                        list_lora_layers.append(new_module)
+                        print(f"Processing text block {i}, {name}")
+                        
+                        if f'layer_{layer_idx}' in weights:
+                            layer_weights = weights[f'layer_{layer_idx}']
+                            
+                            # Check if we're dealing with in_proj or separate q,k,v projections
+                            if hasattr(submodule, 'in_proj_weight'):
+                                # This is a PyTorch style MHA with a single in_proj_weight
+                                print(f"  Found in_proj_weight style MHA")
+                                embed_dim = submodule.embed_dim
+                                
+                                # Get the weights - in PyTorch MHA, in_proj_weight contains q,k,v stacked
+                                q_weight = submodule.in_proj_weight[:embed_dim]
+                                k_weight = submodule.in_proj_weight[embed_dim:2*embed_dim]
+                                v_weight = submodule.in_proj_weight[2*embed_dim:]
+                                out_weight = submodule.out_proj.weight
+                                
+                                # Apply LoRA contributions
+                                if 'q' in args.params and 'q_proj' in layer_weights:
+                                    print(f"    Applying q_proj LoRA")
+                                    lora_A = layer_weights['q_proj']['w_lora_A']
+                                    lora_B = layer_weights['q_proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    q_update = (lora_B @ lora_A) * scaling
+                                    submodule.in_proj_weight.data[:embed_dim] += q_update
+                                
+                                if 'k' in args.params and 'k_proj' in layer_weights:
+                                    print(f"    Applying k_proj LoRA")
+                                    lora_A = layer_weights['k_proj']['w_lora_A']
+                                    lora_B = layer_weights['k_proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    k_update = (lora_B @ lora_A) * scaling
+                                    submodule.in_proj_weight.data[embed_dim:2*embed_dim] += k_update
+                                
+                                if 'v' in args.params and 'v_proj' in layer_weights:
+                                    print(f"    Applying v_proj LoRA")
+                                    lora_A = layer_weights['v_proj']['w_lora_A']
+                                    lora_B = layer_weights['v_proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    v_update = (lora_B @ lora_A) * scaling
+                                    submodule.in_proj_weight.data[2*embed_dim:] += v_update
+                                
+                                if 'o' in args.params and 'proj' in layer_weights:
+                                    print(f"    Applying output proj LoRA")
+                                    lora_A = layer_weights['proj']['w_lora_A']
+                                    lora_B = layer_weights['proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    out_update = (lora_B @ lora_A) * scaling
+                                    submodule.out_proj.weight.data += out_update
+                            
+                            else:
+                                # This is a different MHA implementation with separate q,k,v projections
+                                print(f"  Unable to determine MHA structure. Skipping layer.")
+                        
+                        layer_idx += 1
     
     # Apply to vision encoder if specified
     if args.encoder in ['vision', 'both']:
@@ -162,78 +197,60 @@ def convert_lora_to_merged_model(lora_path, output_path, backbone="ViT-B/32"):
             if i in indices:
                 for name, submodule in block.named_children():
                     if isinstance(submodule, torch.nn.MultiheadAttention):
-                        print(f"Applying LoRA to vision block {i}, {name}")
-                        new_module = PlainMultiheadAttentionLoRA(
-                            submodule, enable_lora=args.params, r=args.r, 
-                            lora_alpha=args.alpha, dropout_rate=args.dropout_rate
-                        )
-                        setattr(block, name, new_module)
-                        list_lora_layers.append(new_module)
-    
-    # Load weights
-    print(f"Loading LoRA weights into {len(list_lora_layers)} layers")
-    for i, layer in enumerate(list_lora_layers):
-        if f'layer_{i}' in weights:
-            layer_weights = weights[f'layer_{i}']
-            
-            if 'q' in args.params and hasattr(layer, 'q_proj') and 'q_proj' in layer_weights:
-                print(f"  Loading q_proj weights for layer {i}")
-                layer.q_proj.w_lora_A.data.copy_(layer_weights['q_proj']['w_lora_A'])
-                layer.q_proj.w_lora_B.data.copy_(layer_weights['q_proj']['w_lora_B'])
-            
-            if 'k' in args.params and hasattr(layer, 'k_proj') and 'k_proj' in layer_weights:
-                print(f"  Loading k_proj weights for layer {i}")
-                layer.k_proj.w_lora_A.data.copy_(layer_weights['k_proj']['w_lora_A'])
-                layer.k_proj.w_lora_B.data.copy_(layer_weights['k_proj']['w_lora_B'])
-            
-            if 'v' in args.params and hasattr(layer, 'v_proj') and 'v_proj' in layer_weights:
-                print(f"  Loading v_proj weights for layer {i}")
-                layer.v_proj.w_lora_A.data.copy_(layer_weights['v_proj']['w_lora_A'])
-                layer.v_proj.w_lora_B.data.copy_(layer_weights['v_proj']['w_lora_B'])
-            
-            if 'o' in args.params and hasattr(layer, 'proj') and 'proj' in layer_weights:
-                print(f"  Loading proj weights for layer {i}")
-                layer.proj.w_lora_A.data.copy_(layer_weights['proj']['w_lora_A'])
-                layer.proj.w_lora_B.data.copy_(layer_weights['proj']['w_lora_B'])
-    
-    # Merge LoRA weights into base weights
-    print("Merging LoRA weights into base model weights...")
-    for layer in list_lora_layers:
-        # Process q_proj
-        if hasattr(layer, 'q_proj') and hasattr(layer.q_proj, 'w_lora_A'):
-            print(f"Merging q_proj weights")
-            lora_contribution = (layer.q_proj.w_lora_B @ layer.q_proj.w_lora_A) * layer.q_proj.scaling
-            layer.q_proj.weight.data += lora_contribution
-        
-        # Process k_proj
-        if hasattr(layer, 'k_proj') and hasattr(layer.k_proj, 'w_lora_A'):
-            print(f"Merging k_proj weights")
-            lora_contribution = (layer.k_proj.w_lora_B @ layer.k_proj.w_lora_A) * layer.k_proj.scaling
-            layer.k_proj.weight.data += lora_contribution
-        
-        # Process v_proj
-        if hasattr(layer, 'v_proj') and hasattr(layer.v_proj, 'w_lora_A'):
-            print(f"Merging v_proj weights")
-            lora_contribution = (layer.v_proj.w_lora_B @ layer.v_proj.w_lora_A) * layer.v_proj.scaling
-            layer.v_proj.weight.data += lora_contribution
-        
-        # Process output projection
-        if hasattr(layer, 'proj') and hasattr(layer.proj, 'w_lora_A'):
-            print(f"Merging output projection weights")
-            lora_contribution = (layer.proj.w_lora_B @ layer.proj.w_lora_A) * layer.proj.scaling
-            layer.proj.weight.data += lora_contribution
-    
-    # Create clean state dict without LoRA parameters
-    print("Creating clean state dict...")
-    clean_state_dict = {}
-    for k, v in clip_model.state_dict().items():
-        if 'w_lora_A' not in k and 'w_lora_B' not in k and 'scaling' not in k:
-            clean_state_dict[k] = v
+                        print(f"Processing vision block {i}, {name}")
+                        
+                        if f'layer_{layer_idx}' in weights:
+                            layer_weights = weights[f'layer_{layer_idx}']
+                            
+                            # Check if we're dealing with in_proj or separate q,k,v projections
+                            if hasattr(submodule, 'in_proj_weight'):
+                                # This is a PyTorch style MHA with a single in_proj_weight
+                                print(f"  Found in_proj_weight style MHA")
+                                embed_dim = submodule.embed_dim
+                                
+                                # Apply LoRA contributions
+                                if 'q' in args.params and 'q_proj' in layer_weights:
+                                    print(f"    Applying q_proj LoRA")
+                                    lora_A = layer_weights['q_proj']['w_lora_A']
+                                    lora_B = layer_weights['q_proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    q_update = (lora_B @ lora_A) * scaling
+                                    submodule.in_proj_weight.data[:embed_dim] += q_update
+                                
+                                if 'k' in args.params and 'k_proj' in layer_weights:
+                                    print(f"    Applying k_proj LoRA")
+                                    lora_A = layer_weights['k_proj']['w_lora_A']
+                                    lora_B = layer_weights['k_proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    k_update = (lora_B @ lora_A) * scaling
+                                    submodule.in_proj_weight.data[embed_dim:2*embed_dim] += k_update
+                                
+                                if 'v' in args.params and 'v_proj' in layer_weights:
+                                    print(f"    Applying v_proj LoRA")
+                                    lora_A = layer_weights['v_proj']['w_lora_A']
+                                    lora_B = layer_weights['v_proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    v_update = (lora_B @ lora_A) * scaling
+                                    submodule.in_proj_weight.data[2*embed_dim:] += v_update
+                                
+                                if 'o' in args.params and 'proj' in layer_weights:
+                                    print(f"    Applying output proj LoRA")
+                                    lora_A = layer_weights['proj']['w_lora_A']
+                                    lora_B = layer_weights['proj']['w_lora_B']
+                                    scaling = args.alpha / args.r
+                                    out_update = (lora_B @ lora_A) * scaling
+                                    submodule.out_proj.weight.data += out_update
+                            
+                            else:
+                                # This is a different MHA implementation with separate q,k,v projections
+                                print(f"  Unable to determine MHA structure. Skipping layer.")
+                        
+                        layer_idx += 1
     
     # Save merged model
     print(f"Saving merged model to {output_path}")
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    torch.save(clean_state_dict, output_path)
+    torch.save(clip_model.state_dict(), output_path)
     print("Conversion complete!")
 
 # Example usage
