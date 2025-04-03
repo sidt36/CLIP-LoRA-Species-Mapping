@@ -6,8 +6,11 @@ from utils import *
 
 from loralib.utils import mark_only_lora_as_trainable, apply_lora, get_lora_parameters, lora_state_dict, save_lora, load_lora
 from loralib import layers as lora_layers
+from sklearn.metrics import classification_report, precision_recall_fscore_support, accuracy_score
+import numpy as np
 
 def evaluate_lora(args, clip_model, loader, dataset):
+    
     clip_model.eval()
     with torch.no_grad():
         template = dataset.template[0] 
@@ -19,6 +22,9 @@ def evaluate_lora(args, clip_model, loader, dataset):
 
     acc = 0.
     tot_samples = 0
+    all_predictions = []
+    all_targets = []
+    
     with torch.no_grad():
         for i, (images, target) in enumerate(loader):
             images, target = images.to(device), target.to(device)
@@ -26,12 +32,62 @@ def evaluate_lora(args, clip_model, loader, dataset):
                 image_features = clip_model.encode_image(images)
             image_features = image_features/image_features.norm(dim=-1, keepdim=True)
             cosine_similarity = image_features @ text_features.t()
+            predictions = cosine_similarity.argmax(dim=1)
+            
+            # Calculate accuracy
             acc += cls_acc(cosine_similarity, target) * len(cosine_similarity)
             tot_samples += len(cosine_similarity)
+            
+            # Store predictions and targets for classification report
+            all_predictions.extend(predictions.cpu().numpy())
+            all_targets.extend(target.cpu().numpy())
+    
+    # Calculate overall accuracy
     acc /= tot_samples
-
+    
+    # Calculate aggregate metrics
+    precision_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(
+        all_targets, all_predictions, average='macro', zero_division=0
+    )
+    
+    precision_weighted, recall_weighted, f1_weighted, _ = precision_recall_fscore_support(
+        all_targets, all_predictions, average='weighted', zero_division=0
+    )
+    
+    # Print detailed metrics
+    print(f"\nEvaluation Metrics:")
+    print(f"Accuracy: {acc:.4f}")
+    print(f"Macro Precision: {precision_macro:.4f}")
+    print(f"Macro Recall: {recall_macro:.4f}")
+    print(f"Macro F1: {f1_macro:.4f}")
+    print(f"Weighted Precision: {precision_weighted:.4f}")
+    print(f"Weighted Recall: {recall_weighted:.4f}")
+    print(f"Weighted F1: {f1_weighted:.4f}")
+    
+    # Print classification report for first few and last few classes (to avoid long output)
+    class_names = dataset.classnames
+    if len(class_names) > 10:
+        # For datasets with many classes, print a subset
+        report = classification_report(
+            all_targets, 
+            all_predictions, 
+            target_names=class_names[:5] + ["..."] + class_names[-5:], 
+            labels=list(range(5)) + list(range(len(class_names)-5, len(class_names))),
+            digits=4
+        )
+    else:
+        # For datasets with few classes, print all
+        report = classification_report(
+            all_targets, 
+            all_predictions, 
+            target_names=class_names, 
+            digits=4
+        )
+    
+    print("\nPer-class Metrics (sample):")
+    print(report)
+    
     return acc
-
 
 def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, test_loader):
     
