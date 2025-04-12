@@ -55,17 +55,46 @@ def evaluate_lora(args, clip_model, loader, dataset):
         all_targets, all_predictions, average='weighted', zero_division=0
     )
     
-    # Print detailed metrics
+    # Calculate per-class metrics
+    class_names = dataset.classnames
+    per_class_precision, per_class_recall, per_class_f1, per_class_support = precision_recall_fscore_support(
+        all_targets, all_predictions, labels=range(len(class_names)), zero_division=0
+    )
+    
+    # Create per-species performance dictionary
+    per_species_performance = {}
+    for i, classname in enumerate(class_names):
+        per_species_performance[classname] = {
+            "precision": float(per_class_precision[i]),
+            "recall": float(per_class_recall[i]),
+            "f1_score": float(per_class_f1[i]),
+            "support": int(per_class_support[i])
+        }
+    
+    # Find top 5 and bottom 5 performing species based on F1 score
+    species_f1_scores = [(classname, per_class_f1[i]) for i, classname in enumerate(class_names)]
+    species_f1_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    top5_species = species_f1_scores[:5]
+    bottom5_species = species_f1_scores[-5:]
+    
+    top5_dict = {species: float(score) for species, score in top5_species}
+    bottom5_dict = {species: float(score) for species, score in bottom5_species}
+    
     # Save metrics to a JSON file
     metrics = {
-        "accuracy": acc,
-        "macro_precision": precision_macro,
-        "macro_recall": recall_macro,
-        "macro_f1": f1_macro,
-        "weighted_precision": precision_weighted,
-        "weighted_recall": recall_weighted,
-        "weighted_f1": f1_weighted
+        "accuracy": float(acc),
+        "macro_precision": float(precision_macro),
+        "macro_recall": float(recall_macro),
+        "macro_f1": float(f1_macro),
+        "weighted_precision": float(precision_weighted),
+        "weighted_recall": float(recall_weighted),
+        "weighted_f1": float(f1_weighted),
+        "per_species_performance": per_species_performance,
+        "top5_species_by_f1": top5_dict,
+        "bottom5_species_by_f1": bottom5_dict
     }
+    
     with open("/app/CLIP-LoRA-Species-Mapping/eval_results.json", "w") as f:
         json.dump(metrics, f, indent=4)
 
@@ -79,8 +108,16 @@ def evaluate_lora(args, clip_model, loader, dataset):
     print(f"Weighted Recall: {recall_weighted:.4f}")
     print(f"Weighted F1: {f1_weighted:.4f}")
     
+    # Print top 5 and bottom 5 species by F1 score
+    print("\nTop 5 species by F1 score:")
+    for species, score in top5_species:
+        print(f"{species}: {score:.4f}")
+    
+    print("\nBottom 5 species by F1 score:")
+    for species, score in bottom5_species:
+        print(f"{species}: {score:.4f}")
+    
     # Print classification report for first few and last few classes (to avoid long output)
-    class_names = dataset.classnames
     if len(class_names) > 10:
         # For datasets with many classes, print a subset
         report = classification_report(
