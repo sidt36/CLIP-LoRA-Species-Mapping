@@ -171,8 +171,8 @@ class GoogleCCTreeDataset(Dataset):
                 continue
             
             # Calculate split sizes
-            num_test = max(self.min_eval_samples, int(num_samples * 0.15))
-            num_val = max(self.min_eval_samples, int(num_samples * 0.15))
+            num_test = max(self.min_eval_samples, int(num_samples * 1))
+            num_val = max(self.min_eval_samples, int(num_samples * 0))
             
             # Adjust train size to maintain minimum eval samples
             num_train = num_samples - (num_test + num_val)
