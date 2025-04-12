@@ -33,7 +33,7 @@ class GoogleCCTreeDataset(Dataset):
         root_dir: str,
         split: str = 'train',
         transform: Optional[transforms.Compose] = None,
-        train_ratio: float = 0.0,
+        train_ratio: float = 0.1,
         min_eval_samples_per_class: int = 1,
         seed: int = 42
     ):
@@ -171,8 +171,8 @@ class GoogleCCTreeDataset(Dataset):
                 continue
             
             # Calculate split sizes
-            num_test = max(self.min_eval_samples, int(num_samples * 1.0))
-            num_val = max(self.min_eval_samples, int(num_samples * 0.0))
+            num_test = max(self.min_eval_samples, int(num_samples * 0.8))
+            num_val = max(self.min_eval_samples, int(num_samples * 0.1))
             
             # Adjust train size to maintain minimum eval samples
             num_train = num_samples - (num_test + num_val)
