@@ -33,7 +33,7 @@ class GoogleCCTreeDataset(Dataset):
         root_dir: str,
         split: str = 'train',
         transform: Optional[transforms.Compose] = None,
-        train_ratio: float = 0.7,
+        train_ratio: float = 0.0,
         min_eval_samples_per_class: int = 1,
         seed: int = 42
     ):
@@ -171,8 +171,8 @@ class GoogleCCTreeDataset(Dataset):
                 continue
             
             # Calculate split sizes
-            num_test = max(self.min_eval_samples, int(num_samples * 1))
-            num_val = max(self.min_eval_samples, int(num_samples * 0))
+            num_test = max(self.min_eval_samples, int(num_samples * 1.0))
+            num_val = max(self.min_eval_samples, int(num_samples * 0.0))
             
             # Adjust train size to maintain minimum eval samples
             num_train = num_samples - (num_test + num_val)
@@ -190,6 +190,15 @@ class GoogleCCTreeDataset(Dataset):
             print(f"  Test: {len(samples[:num_test])}")
             
         return train_samples, val_samples, test_samples
+    
+    def set_all_samples(self, samples, image_paths, labels):
+        """
+        Replace the current samples with the provided ones.
+        Used for the all_test option to move all samples to test set.
+        """
+        self.samples = samples
+        self.image_paths = image_paths
+        self.labels = labels
     
     def __len__(self) -> int:
         return len(self.samples)
@@ -332,11 +341,34 @@ class GoogleCCArborist():
         
         # Convert target labels to tensor for compatibility
         self.targets = torch.tensor(targets, dtype=torch.long).to(device)
+        
+    def move_all_to_test(self):
+        """Move all samples from train and val sets to test set for full evaluation"""
+        # Collect all samples from train, val, and test
+        all_samples = self.train_x.samples + self.val.samples + self.test.samples
+        
+        # Store all image paths and labels
+        all_image_paths = []
+        all_labels = []
+        
+        for sample in all_samples:
+            all_image_paths.append(str(sample['image_path']))
+            all_labels.append(self.train_x.species_to_idx[sample['species']])
+        
+        # Create empty train and val sets
+        self.train_x.set_all_samples([], [], [])
+        self.val.set_all_samples([], [], [])
+        
+        # Move all samples to test set
+        self.test.set_all_samples(all_samples, all_image_paths, all_labels)
+        
+        print(f"Moved all {len(all_samples)} samples to test set for full evaluation")
 
 def get_google_cc_arborist_dataset(
     root_dir: str,
     num_shots: int = 16,
     use_full_dataset: bool = False,
+    all_test: bool = True,  # New parameter to move all samples to test set
     seed: int = 42
 ):
     """
@@ -346,6 +378,7 @@ def get_google_cc_arborist_dataset(
         root_dir: Root directory containing the Google CC data
         num_shots: Number of shots (samples per class) for few-shot learning
         use_full_dataset: If True, use full dataset instead of few-shot subset
+        all_test: If True, moves all samples to the test set for full evaluation
         seed: Random seed for reproducibility
         
     Returns:
@@ -377,6 +410,10 @@ def get_google_cc_arborist_dataset(
         train_preprocess=train_preprocess
     )
     
+    # If all_test option is enabled, move all samples to test set
+    if all_test:
+        dataset.move_all_to_test()
+    
     return dataset
 
 # Example usage:
@@ -387,7 +424,8 @@ if __name__ == "__main__":
     dataset = get_google_cc_arborist_dataset(
         root_dir=root_dir,
         num_shots=16,
-        # use_full_dataset=True  # Uncomment to use full dataset
+        # use_full_dataset=True,  # Uncomment to use full dataset
+        # all_test=True  # Uncomment to move all samples to test set
     )
     
     # Print dataset information
@@ -406,3 +444,17 @@ if __name__ == "__main__":
     val_loader = DataLoader(dataset.val, batch_size=16, shuffle=False, num_workers=1)  # Reduced workers and batch size
     test_loader = DataLoader(dataset.test, batch_size=16, shuffle=False, num_workers=1)  # Reduced workers and batch size
 
+    # Example usage with all_test option:
+    # dataset_all_test = get_google_cc_arborist_dataset(
+    #     root_dir=root_dir,
+    #     all_test=True  # Set to True to move all samples to test set
+    # )
+    # 
+    # print(f"All test dataset:")
+    # print(f"Number of classes: {len(dataset_all_test.classnames)}")
+    # print(f"Training samples: {len(dataset_all_test.train_x)}")   # Should be 0
+    # print(f"Validation samples: {len(dataset_all_test.val)}")     # Should be 0
+    # print(f"Test samples: {len(dataset_all_test.test)}")          # Should contain all samples
+    # 
+    # # Create test dataloader for full evaluation
+    # all_test_loader = DataLoader(dataset_all_test.test, batch_size=16, shuffle=False, num_workers=2)
