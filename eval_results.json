@@ -1,0 +1,187 @@
+{
+    "accuracy": 26.0,
+    "macro_precision": 0.21512894782043263,
+    "macro_recall": 0.20061985048730618,
+    "macro_f1": 0.15820788217720605,
+    "weighted_precision": 0.5690614192302255,
+    "weighted_recall": 0.26,
+    "weighted_f1": 0.30386620445964263,
+    "per_species_performance": {
+        "Acalypha fruticosa": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 8
+        },
+        "Albizia lebbeck": {
+            "precision": 1.0,
+            "recall": 0.16666666666666666,
+            "f1_score": 0.2857142857142857,
+            "support": 6
+        },
+        "Albizia procera": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 3
+        },
+        "Alstonia scholaris": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 1
+        },
+        "Azadirachta indica": {
+            "precision": 0.8173076923076923,
+            "recall": 0.2842809364548495,
+            "f1_score": 0.4218362282878412,
+            "support": 299
+        },
+        "Bambusa bambos": {
+            "precision": 0.25,
+            "recall": 0.5,
+            "f1_score": 0.3333333333333333,
+            "support": 4
+        },
+        "Bombax ceiba": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 2
+        },
+        "Butea monosperma": {
+            "precision": 0.16666666666666666,
+            "recall": 0.2,
+            "f1_score": 0.1818181818181818,
+            "support": 10
+        },
+        "Cassia fistula": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 2
+        },
+        "Cordia myxa": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 1
+        },
+        "Dalbergia sissoo": {
+            "precision": 0.19230769230769232,
+            "recall": 0.13513513513513514,
+            "f1_score": 0.15873015873015872,
+            "support": 37
+        },
+        "Ficus benghalensis": {
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1_score": 0.5,
+            "support": 4
+        },
+        "Ficus religiosa": {
+            "precision": 0.3333333333333333,
+            "recall": 0.1111111111111111,
+            "f1_score": 0.16666666666666666,
+            "support": 9
+        },
+        "Mangifera indica": {
+            "precision": 0.3333333333333333,
+            "recall": 0.38636363636363635,
+            "f1_score": 0.35789473684210527,
+            "support": 44
+        },
+        "Moringa oleifera": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 1
+        },
+        "Phoenix sylvestris": {
+            "precision": 0.6818181818181818,
+            "recall": 1.0,
+            "f1_score": 0.8108108108108109,
+            "support": 15
+        },
+        "Phyllanthus emblica": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 4
+        },
+        "Pongamia pinnata": {
+            "precision": 0.024390243902439025,
+            "recall": 0.1111111111111111,
+            "f1_score": 0.04,
+            "support": 9
+        },
+        "Prosopis cineraria": {
+            "precision": 0.22348484848484848,
+            "recall": 0.48760330578512395,
+            "f1_score": 0.3064935064935065,
+            "support": 121
+        },
+        "Senegalia senegal": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 1
+        },
+        "Terminalia arjuna": {
+            "precision": 0.2,
+            "recall": 0.25,
+            "f1_score": 0.22222222222222224,
+            "support": 8
+        },
+        "Terminalia calamansanai": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 1
+        },
+        "Terminalia catappa": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "support": 1
+        },
+        "Vachellia leucophloea": {
+            "precision": 0.16666666666666666,
+            "recall": 0.06,
+            "f1_score": 0.08823529411764705,
+            "support": 50
+        },
+        "Vachellia nilotica": {
+            "precision": 0.75,
+            "recall": 0.14754098360655737,
+            "f1_score": 0.24657534246575344,
+            "support": 244
+        },
+        "Ziziphus jujuba": {
+            "precision": 0.14285714285714285,
+            "recall": 0.07692307692307693,
+            "f1_score": 0.1,
+            "support": 13
+        },
+        "Ziziphus mauritiana": {
+            "precision": 0.02631578947368421,
+            "recall": 1.0,
+            "f1_score": 0.05128205128205127,
+            "support": 2
+        }
+    },
+    "top5_species_by_f1": {
+        "Phoenix sylvestris": 0.8108108108108109,
+        "Ficus benghalensis": 0.5,
+        "Azadirachta indica": 0.4218362282878412,
+        "Mangifera indica": 0.35789473684210527,
+        "Bambusa bambos": 0.3333333333333333
+    },
+    "bottom5_species_by_f1": {
+        "Moringa oleifera": 0.0,
+        "Phyllanthus emblica": 0.0,
+        "Senegalia senegal": 0.0,
+        "Terminalia calamansanai": 0.0,
+        "Terminalia catappa": 0.0
+    }
+}
