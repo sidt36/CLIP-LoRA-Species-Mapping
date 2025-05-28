@@ -12,6 +12,7 @@ from .imagenet import ImageNet
 from .auto_arborist import AutoArborist
 from .inat import INaturalist
 from .google_cc import GoogleCCArborist
+from .gsv_dataset import TreeSpeciesDataset  # Placeholder for GSV dataset, not implemented
 dataset_list = {
                 "oxford_pets": OxfordPets,
                 "eurosat": EuroSAT,
@@ -27,6 +28,7 @@ dataset_list = {
                 "auto_arborist":AutoArborist,
                 "inat" : INaturalist,
                 "google_cc": GoogleCCArborist,
+                "gsv": TreeSpeciesDataset  # Placeholder for GSV dataset, not implemented
                 }
 
 

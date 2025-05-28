@@ -19,13 +19,9 @@ from PIL import Image
 
 # Tree species templates following imagenet_templates pattern
 tree_species_templates = [
-    "a photo of a {} tree.",
-    "a {} in the forest.",
-    "leaves of a {}.",
-    "the canopy of a {}.",
-    "a close-up of a {}.",
-    "a {} tree in nature.",
-    "bark texture of a {}."
+    "a specimen of a {} tree.",
+    "a specimen of a {} tree species.",
+    "a photo of a {} tree."
 ]
 
 # Alternative: simpler template
