@@ -33,7 +33,7 @@ dataset_list = {
 
 
 def build_dataset(dataset, root_path, shots, preprocess):
-    if dataset == 'imagenet' or dataset == 'auto_arborist' or dataset == 'google_cc' or dataset == 'inat': 
+    if dataset == 'imagenet' or dataset == 'auto_arborist' or dataset == 'google_cc' or dataset == 'inat' or dataset == 'gsv': 
         return dataset_list[dataset](root_path, shots, preprocess)
     else:
         return dataset_list[dataset](root_path, shots)

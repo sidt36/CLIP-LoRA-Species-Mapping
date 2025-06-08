@@ -20,7 +20,7 @@ def get_arguments():
     parser.add_argument('--seed', default=1, type=int)
     # Dataset arguments
     parser.add_argument('--root_path', type=str, default='')
-    parser.add_argument('--dataset', type=str, default='dtd')
+    parser.add_argument('--dataset', type=str, default='gsv')
     parser.add_argument('--shots', default=16, type=int)
     # Model arguments
     #Important: The backbone should be the same as the one used to train the LoRA modules
