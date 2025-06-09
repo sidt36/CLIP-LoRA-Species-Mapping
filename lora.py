@@ -276,7 +276,7 @@ def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, t
     
     # Final evaluation on test set
     clip_model.eval()
-    final_acc_test = evaluate_lora_comprehensive(args, clip_model, test_loader, dataset)["accuracy"]
+    final_acc_test = evaluate_lora_comprehensive(args, clip_model, test_loader, dataset)
     print("\n**** Training complete ****")
     print("**** Best validation accuracy: {:.2f} (epoch {}) ****".format(best_acc_val, best_epoch_val))
     print("**** Best model test accuracy: {:.2f} ****".format(best_acc_test))
