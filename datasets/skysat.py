@@ -1,7 +1,7 @@
 """
-Tree Species Dataset for Bio-CLIP Training
+SkySat Tree Species Dataset for Bio-CLIP Training
 Following the ImageNet dataloader pattern for compatibility
-Updated to handle path structures and missing files gracefully
+Loads SkySat satellite imagery crops instead of GSV images
 """
 
 import os
@@ -20,26 +20,24 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Tree species templates following imagenet_templates pattern
-tree_species_templates = [
-    "a specimen of a {} tree.",
-    "a specimen of a {} tree species.",
-    "a photo of a {} tree."
+# SkySat tree species templates - adapted for satellite imagery context
+skysat_tree_species_templates = [
+    "a satellite view of a {} tree.",
+    "an aerial view of a {} tree species.",
+    "a satellite image of a {} tree."
 ]
 
-# Alternative: simpler template
-# tree_species_templates = ["a photo of a {}."]
 
-
-class SkyTreeSpeciesDataset():
+class SkySatTreeSpeciesDataset():
     """
-    Tree Species Dataset for Bio-CLIP training
+    SkySat Tree Species Dataset for Bio-CLIP training
     Follows the ImageNet dataloader structure for compatibility
     """
     
     dataset_dir = 'tree_species'
     
-    def __init__(self, root, num_shots, preprocess, train_preprocess=None, test_preprocess=None):
+    def __init__(self, root, num_shots, preprocess, train_preprocess=None, test_preprocess=None, 
+                 enlargement_factor=2.0, crop_format='jpg'):
         """
         Args:
             root: Root directory containing the dataset
@@ -47,7 +45,12 @@ class SkyTreeSpeciesDataset():
             preprocess: Default preprocessing (used for val)
             train_preprocess: Training-specific preprocessing
             test_preprocess: Test-specific preprocessing
+            enlargement_factor: The enlargement factor used when extracting crops
+            crop_format: Format of the saved crops ('jpg' or 'png')
         """
+        
+        self.enlargement_factor = enlargement_factor
+        self.crop_format = crop_format
         
         # Find the dataset directory - handle different possible structures
         possible_paths = [
@@ -72,23 +75,23 @@ class SkyTreeSpeciesDataset():
         
         logger.info(f"Using dataset directory: {self.dataset_dir}")
         
-        # Find image directory
-        possible_image_dirs = [
-            os.path.join(self.dataset_dir, 'images'),
-            os.path.join(os.path.dirname(self.dataset_dir), 'images'),
-            os.path.join(self.dataset_dir, '..', 'images')
+        # Find SkySat crops directory
+        possible_skysat_dirs = [
+            os.path.join(self.dataset_dir, 'skysat_crops'),
+            os.path.join(os.path.dirname(self.dataset_dir), 'skysat_crops'),
+            os.path.join(self.dataset_dir, '..', 'skysat_crops')
         ]
         
-        self.image_dir = None
-        for img_dir in possible_image_dirs:
-            if os.path.exists(img_dir):
-                self.image_dir = os.path.abspath(img_dir)
+        self.skysat_dir = None
+        for skysat_dir in possible_skysat_dirs:
+            if os.path.exists(skysat_dir):
+                self.skysat_dir = os.path.abspath(skysat_dir)
                 break
         
-        if self.image_dir is None:
-            raise ValueError(f"Could not find images directory")
+        if self.skysat_dir is None:
+            raise ValueError(f"Could not find skysat_crops directory")
         
-        logger.info(f"Using image directory: {self.image_dir}")
+        logger.info(f"Using SkySat directory: {self.skysat_dir}")
         
         # Load the integrated dataset
         metadata_base = os.path.join(self.dataset_dir, 'species_classification_vectors')
@@ -113,12 +116,13 @@ class SkyTreeSpeciesDataset():
         self.classnames = self.vector_info['species_order']  # Already ordered list
         self.class_to_idx = {name: idx for idx, name in enumerate(self.classnames)}
         
-        # Default transforms if not provided
+        # Default transforms for SkySat imagery (no center crop needed)
         if train_preprocess is None:
             train_preprocess = transforms.Compose([
-                transforms.CenterCrop((400, 300)),  # Center crop for GSV images
-                transforms.RandomResizedCrop(size=224, scale=(0.08, 1), interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.RandomResizedCrop(size=224, scale=(0.8, 1.0), interpolation=transforms.InterpolationMode.BICUBIC),
                 transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomVerticalFlip(p=0.5),  # Added for satellite imagery
+                transforms.RandomRotation(degrees=45),  # Added for rotation invariance
                 transforms.ToTensor(),
                 transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073), std=(0.26862954, 0.26130258, 0.27577711))
             ])
@@ -132,12 +136,12 @@ class SkyTreeSpeciesDataset():
         val_df = pd.read_csv(os.path.join(splits_dir, 'val.csv'))
         test_df = pd.read_csv(os.path.join(splits_dir, 'test.csv'))
         
-        # Filter for labeled data only
-        train_df = train_df[train_df['has_species_label'] == True].copy()
-        val_df = val_df[val_df['has_species_label'] == True].copy()
-        test_df = test_df[test_df['has_species_label'] == True].copy()
+        # Filter for labeled data AND SkySat availability
+        train_df = train_df[(train_df['has_species_label'] == True) & (train_df.get('has_skysat', True) == True)].copy()
+        val_df = val_df[(val_df['has_species_label'] == True) & (val_df.get('has_skysat', True) == True)].copy()
+        test_df = test_df[(test_df['has_species_label'] == True) & (test_df.get('has_skysat', True) == True)].copy()
         
-        logger.info(f"Dataset sizes - Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+        logger.info(f"SkySat Dataset sizes - Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
         
         # Create ImageFolder-compatible structure
         self.train_x = self._create_dataset(train_df, train_preprocess)
@@ -145,11 +149,16 @@ class SkyTreeSpeciesDataset():
         self.test = self._create_dataset(test_df, test_preprocess)
         
         # Set templates
-        self.template = tree_species_templates
+        self.template = skysat_tree_species_templates
         
         # Apply few-shot sampling if needed
         if num_shots > 0:
             self._apply_few_shot_sampling(num_shots)
+    
+    def _get_skysat_filename(self, gsv_filename):
+        """Convert GSV filename to SkySat filename"""
+        base_name = os.path.splitext(gsv_filename)[0]
+        return f"{base_name}_skysat.{self.crop_format}"
     
     def _create_dataset(self, df, transform):
         """Create a dataset structure compatible with ImageFolder"""
@@ -162,12 +171,18 @@ class SkyTreeSpeciesDataset():
         missing_files = 0
         
         for _, row in df.iterrows():
-            # Try multiple possible paths for the image
+            # Get SkySat filename from GSV filename
+            skysat_filename = self._get_skysat_filename(row['image_filename'])
+            
+            # Try multiple possible paths for the SkySat image
             possible_paths = [
-                os.path.join(self.image_dir, row['image_filename']),
-                os.path.join(self.dataset_dir, 'images', row['image_filename']),
-                row.get('image_path', '')  # Use full path if available
+                os.path.join(self.skysat_dir, skysat_filename),
+                os.path.join(self.dataset_dir, 'skysat_crops', skysat_filename),
             ]
+            
+            # Also check if there's a specific skysat path in the metadata
+            if 'skysat_path' in row and pd.notna(row['skysat_path']):
+                possible_paths.insert(0, row['skysat_path'])
             
             img_path = None
             for path in possible_paths:
@@ -177,6 +192,7 @@ class SkyTreeSpeciesDataset():
             
             if img_path is None:
                 missing_files += 1
+                logger.debug(f"SkySat image not found: {skysat_filename}")
                 continue
             
             # Use species_name to get class index
@@ -197,14 +213,14 @@ class SkyTreeSpeciesDataset():
                 logger.warning(f"Species '{species_name}' not found in class index")
         
         if missing_files > 0:
-            logger.warning(f"Could not find {missing_files} image files")
+            logger.warning(f"Could not find {missing_files} SkySat image files")
         
         dataset.imgs = imgs
         dataset.targets = targets
         dataset.samples = imgs  # For compatibility
         dataset.data = data  # Bio-CLIP compatibility
         
-        logger.info(f"Created dataset with {len(imgs)} samples")
+        logger.info(f"Created SkySat dataset with {len(imgs)} samples")
         
         return dataset
     
@@ -223,7 +239,7 @@ class SkyTreeSpeciesDataset():
         
         # Log class distribution
         class_counts = {label: len(items) for label, items in split_by_label_dict.items()}
-        logger.info(f"Class distribution before sampling: {class_counts}")
+        logger.info(f"SkySat class distribution before sampling: {class_counts}")
         
         # Sample for train and val
         imgs = []
@@ -272,7 +288,7 @@ class SkyTreeSpeciesDataset():
                     imgs.append(items[idx])
                     targets.append(label)
                     data.append(datum_items[idx])
-                logger.warning(f"Class {label} has only {len(items)} samples, less than requested {num_shots}")
+                logger.warning(f"Class {label} has only {len(items)} SkySat samples, less than requested {num_shots}")
         
         # Update train dataset
         self.train_x.imgs = imgs
@@ -280,7 +296,7 @@ class SkyTreeSpeciesDataset():
         self.train_x.samples = imgs
         self.train_x.data = data
         
-        logger.info(f"Few-shot sampling: {len(imgs)} training samples")
+        logger.info(f"SkySat few-shot sampling: {len(imgs)} training samples")
         
         # Update val dataset if we have samples
         if imgs_val:
@@ -288,7 +304,7 @@ class SkyTreeSpeciesDataset():
             self.val.targets = targets_val
             self.val.samples = imgs_val
             self.val.data = data_val
-            logger.info(f"Few-shot sampling: {len(imgs_val)} validation samples")
+            logger.info(f"SkySat few-shot sampling: {len(imgs_val)} validation samples")
 
 
 class Datum:
@@ -322,21 +338,22 @@ class SimpleDataset(Dataset):
             if self.transform is not None:
                 img = self.transform(img)
         except Exception as e:
-            logger.error(f"Error loading image {path}: {e}")
+            logger.error(f"Error loading SkySat image {path}: {e}")
             if self.transform is not None:
-                dummy_img = Image.new('RGB', (600, 400), color='black')
+                # Create a dummy image with typical SkySat crop size
+                dummy_img = Image.new('RGB', (224, 224), color='black')
                 img = self.transform(dummy_img)
             else:
                 img = torch.zeros(3, 224, 224)
 
         # Always return a Datum object
-        return Datum(impath=path, label=target, classname=datum.classname)
+        return datum
 
 
 # Utility function to create the dataset
-def get_tree_species_dataset(root, num_shots=16, preprocess=None):
+def get_skysat_tree_species_dataset(root, num_shots=16, preprocess=None):
     """
-    Utility function to create tree species dataset
+    Utility function to create SkySat tree species dataset
     
     Args:
         root: Root directory containing the dataset
@@ -344,19 +361,19 @@ def get_tree_species_dataset(root, num_shots=16, preprocess=None):
         preprocess: Preprocessing pipeline
     
     Returns:
-        TreeSpeciesDataset instance
+        SkySatTreeSpeciesDataset instance
     """
     if preprocess is None:
-        # Default CLIP preprocessing
+        # Default CLIP preprocessing for SkySat imagery
         preprocess = transforms.Compose([
-            transforms.CenterCrop((400, 300)),  # Center crop for GSV images
             transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073), 
                                std=(0.26862954, 0.26130258, 0.27577711))
         ])
     
-    return SkyTreeSpeciesDataset(
+    return SkySatTreeSpeciesDataset(
         root=root,
         num_shots=num_shots,
         preprocess=preprocess
@@ -373,17 +390,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Create dataset
-    dataset = get_tree_species_dataset(args.root, args.num_shots)
+    dataset = get_skysat_tree_species_dataset(args.root, args.num_shots)
     
     # Print dataset info
     print(f"Number of classes: {len(dataset.classnames)}")
-    print(f"Classes: {dataset.classnames}")
+    print(f"Classes: {dataset.classnames[:10]}...")  # First 10 classes
     print(f"Train samples: {len(dataset.train_x)}")
     print(f"Val samples: {len(dataset.val)}")
     print(f"Test samples: {len(dataset.test)}")
     
     # Test loading a sample
     if len(dataset.train_x) > 0:
-        img, label = dataset.train_x[0]
-        print(f"Sample image shape: {img.shape}")
-        print(f"Sample label: {label} ({dataset.classnames[label]})")
+        sample = dataset.train_x[0]
+        if hasattr(sample, 'impath'):
+            print(f"Sample image path: {sample.impath}")
+            print(f"Sample label: {sample.label} ({sample.classname})")
+        else:
+            print(f"Sample loaded successfully")

@@ -13,7 +13,7 @@ from .auto_arborist import AutoArborist
 from .inat import INaturalist
 from .google_cc import GoogleCCArborist
 from .gsv_dataset import TreeSpeciesDataset  
-from .skysat import SkyTreeSpeciesDataset
+from .skysat import SkySatTreeSpeciesDataset
 dataset_list = {
                 "oxford_pets": OxfordPets,
                 "eurosat": EuroSAT,
@@ -30,7 +30,7 @@ dataset_list = {
                 "inat" : INaturalist,
                 "google_cc": GoogleCCArborist,
                 "gsv": TreeSpeciesDataset,
-                "skysat": SkyTreeSpeciesDataset
+                "skysat": SkySatTreeSpeciesDataset
                 }
 
 
