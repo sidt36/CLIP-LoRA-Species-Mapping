@@ -12,7 +12,8 @@ from .imagenet import ImageNet
 from .auto_arborist import AutoArborist
 from .inat import INaturalist
 from .google_cc import GoogleCCArborist
-from .gsv_dataset import TreeSpeciesDataset  # Placeholder for GSV dataset, not implemented
+from .gsv_dataset import TreeSpeciesDataset  
+from .skysat import SkyTreeSpeciesDataset
 dataset_list = {
                 "oxford_pets": OxfordPets,
                 "eurosat": EuroSAT,
@@ -28,12 +29,13 @@ dataset_list = {
                 "auto_arborist":AutoArborist,
                 "inat" : INaturalist,
                 "google_cc": GoogleCCArborist,
-                "gsv": TreeSpeciesDataset  # Placeholder for GSV dataset, not implemented
+                "gsv": TreeSpeciesDataset,
+                "skysat": SkyTreeSpeciesDataset
                 }
 
 
 def build_dataset(dataset, root_path, shots, preprocess):
-    if dataset == 'imagenet' or dataset == 'auto_arborist' or dataset == 'google_cc' or dataset == 'inat' or dataset == 'gsv': 
+    if dataset == 'imagenet' or dataset == 'auto_arborist' or dataset == 'google_cc' or dataset == 'inat' or dataset == 'gsv' or dataset == 'skysat': 
         return dataset_list[dataset](root_path, shots, preprocess)
     else:
         return dataset_list[dataset](root_path, shots)
