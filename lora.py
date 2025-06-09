@@ -234,7 +234,12 @@ def evaluate_lora_full(args, clip_model, loader, dataset, save_path=None, save_p
 
     # Per-class metrics
     per_class_report = classification_report(
-        all_targets, all_predictions, target_names=classnames, output_dict=True, zero_division=0
+        all_targets, 
+        all_predictions, 
+        labels=list(range(len(classnames))),
+        target_names=classnames, 
+        output_dict=True, 
+        zero_division=0
     )
     per_class_df = pd.DataFrame(per_class_report).T
     per_class_df.to_csv(output_dir / f"{save_prefix}_per_class_metrics.csv")
