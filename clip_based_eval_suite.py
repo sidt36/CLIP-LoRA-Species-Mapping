@@ -399,7 +399,6 @@ class CLIPLoRAEvaluator:
         # Analyze confidence of errors
         if len(misclassified_indices) > 0:
             error_confidences = confidences[misclassified_indices]
-            correct_confidences = confidences[~misclassified_mask]
             
             error_analysis['error_confidence_stats'] = {
                 'mean': float(np.mean(error_confidences)),
@@ -408,13 +407,32 @@ class CLIPLoRAEvaluator:
                 'min': float(np.min(error_confidences)),
                 'max': float(np.max(error_confidences))
             }
-            
+        else:
+            error_analysis['error_confidence_stats'] = {
+                'mean': 0.0,
+                'std': 0.0,
+                'median': 0.0,
+                'min': 0.0,
+                'max': 0.0
+            }
+        
+        # Handle correct predictions (may be empty if accuracy is 0)
+        correct_confidences = confidences[~misclassified_mask]
+        if len(correct_confidences) > 0:
             error_analysis['correct_confidence_stats'] = {
                 'mean': float(np.mean(correct_confidences)),
                 'std': float(np.std(correct_confidences)),
                 'median': float(np.median(correct_confidences)),
                 'min': float(np.min(correct_confidences)),
                 'max': float(np.max(correct_confidences))
+            }
+        else:
+            error_analysis['correct_confidence_stats'] = {
+                'mean': 0.0,
+                'std': 0.0,
+                'median': 0.0,
+                'min': 0.0,
+                'max': 0.0
             }
         
         # Most confused class pairs
@@ -675,10 +693,16 @@ class CLIPLoRAEvaluator:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         
         # Overall confidence distribution
-        axes[0].hist(confidences[correct_mask], bins=50, alpha=0.7, 
-                    label=f'Correct (n={np.sum(correct_mask)})', color='green', density=True)
-        axes[0].hist(confidences[~correct_mask], bins=50, alpha=0.7, 
-                    label=f'Incorrect (n={np.sum(~correct_mask)})', color='red', density=True)
+        correct_conf = confidences[correct_mask]
+        incorrect_conf = confidences[~correct_mask]
+        
+        if len(correct_conf) > 0:
+            axes[0].hist(correct_conf, bins=50, alpha=0.7, 
+                        label=f'Correct (n={np.sum(correct_mask)})', color='green', density=True)
+        if len(incorrect_conf) > 0:
+            axes[0].hist(incorrect_conf, bins=50, alpha=0.7, 
+                        label=f'Incorrect (n={np.sum(~correct_mask)})', color='red', density=True)
+        
         axes[0].set_xlabel('Confidence Score')
         axes[0].set_ylabel('Density')
         axes[0].set_title('Confidence Distribution: Correct vs Incorrect')
@@ -686,11 +710,23 @@ class CLIPLoRAEvaluator:
         axes[0].grid(True, alpha=0.3)
         
         # Box plot by correctness
-        data_to_plot = [confidences[correct_mask], confidences[~correct_mask]]
-        axes[1].boxplot(data_to_plot, labels=['Correct', 'Incorrect'])
-        axes[1].set_ylabel('Confidence Score')
-        axes[1].set_title('Confidence Distribution Comparison')
-        axes[1].grid(True, alpha=0.3, axis='y')
+        data_to_plot = []
+        labels = []
+        if len(correct_conf) > 0:
+            data_to_plot.append(correct_conf)
+            labels.append('Correct')
+        if len(incorrect_conf) > 0:
+            data_to_plot.append(incorrect_conf)
+            labels.append('Incorrect')
+        
+        if data_to_plot:
+            axes[1].boxplot(data_to_plot, labels=labels)
+            axes[1].set_ylabel('Confidence Score')
+            axes[1].set_title('Confidence Distribution Comparison')
+            axes[1].grid(True, alpha=0.3, axis='y')
+        else:
+            axes[1].text(0.5, 0.5, 'No data to display', ha='center', va='center')
+            axes[1].set_title('Confidence Distribution Comparison')
         
         plt.tight_layout()
         plt.savefig(self.dirs['visualizations'] / f'{self.save_prefix}_confidence_distributions.png', 
