@@ -245,7 +245,9 @@ def evaluate_lora_full(args, clip_model, loader, dataset, save_path=None, save_p
     per_class_df.to_csv(output_dir / f"{save_prefix}_per_class_metrics.csv")
 
     # Confusion matrix
-    cm = confusion_matrix(all_targets, all_predictions)
+    num_classes = len(classnames)
+    labels = list(range(num_classes))
+    cm = confusion_matrix(all_targets, all_predictions, labels=labels)
     cm_df = pd.DataFrame(cm, index=classnames, columns=classnames)
     cm_df.to_csv(output_dir / f"{save_prefix}_confusion_matrix.csv")
 
