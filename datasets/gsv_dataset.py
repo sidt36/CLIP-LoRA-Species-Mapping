@@ -313,35 +313,24 @@ class SimpleDataset(Dataset):
         return len(self.imgs)
     
     def __getitem__(self, idx):
-        # Check if we're being accessed through the data attribute
-        if hasattr(self, '_use_datum') and self._use_datum:
-            datum = self.data[idx]
-            path = datum.impath
-            target = datum.label
-        else:
-            path, target = self.imgs[idx]
-        
+        datum = self.data[idx]
+        path = datum.impath
+        target = datum.label
+
         try:
-            # Load image
             img = Image.open(path).convert('RGB')
-            
-            # Apply transform
             if self.transform is not None:
                 img = self.transform(img)
-            
-            return img, target
-            
         except Exception as e:
             logger.error(f"Error loading image {path}: {e}")
-            # Return a black image as fallback
             if self.transform is not None:
-                # Create a dummy image
                 dummy_img = Image.new('RGB', (600, 400), color='black')
                 img = self.transform(dummy_img)
             else:
                 img = torch.zeros(3, 224, 224)
-            
-            return img, target
+
+        # Always return a Datum object
+        return Datum(impath=path, label=target, classname=datum.classname)
 
 
 # Utility function to create the dataset
