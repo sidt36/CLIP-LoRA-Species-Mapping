@@ -302,35 +302,56 @@ class CLIPLoRAEvaluator:
         y_true = self.results['targets']
         y_pred = self.results['predictions']
         
-        # Calculate confusion matrix
-        cm = confusion_matrix(y_true, y_pred)
+        # Get unique classes that actually appear in the test set
+        unique_true = np.unique(y_true)
+        unique_pred = np.unique(y_pred)
+        unique_classes = np.unique(np.concatenate([unique_true, unique_pred]))
+        n_unique = len(unique_classes)
+        
+        # Map class indices to positions in confusion matrix
+        class_to_idx = {cls: idx for idx, cls in enumerate(unique_classes)}
+        
+        # Calculate confusion matrix for classes that appear in test set
+        cm = confusion_matrix(y_true, y_pred, labels=unique_classes)
+        
+        # Get class names for the classes that appear
+        present_classnames = [self.classnames[i] for i in unique_classes]
         
         # Create normalized confusion matrix
         cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
         cm_normalized = np.nan_to_num(cm_normalized)  # Handle division by zero
         
+        # Determine figure size based on number of classes present
+        fig_width = max(12, n_unique * 0.5)
+        fig_height = max(10, n_unique * 0.4)
+        
         # Plot normalized confusion matrix
-        plt.figure(figsize=(max(12, self.num_classes * 0.5), max(10, self.num_classes * 0.4)))
-        sns.heatmap(cm_normalized, annot=True, fmt='.2f', cmap='Blues',
-                   xticklabels=self.classnames, yticklabels=self.classnames,
+        plt.figure(figsize=(fig_width, fig_height))
+        
+        # Use smaller font and annotations for large matrices
+        annot = n_unique <= 30
+        fmt = '.2f' if annot else ''
+        
+        sns.heatmap(cm_normalized, annot=annot, fmt=fmt, cmap='Blues',
+                   xticklabels=present_classnames, yticklabels=present_classnames,
                    cbar_kws={'label': 'Normalized Frequency'})
-        plt.title('Normalized Confusion Matrix')
+        plt.title(f'Normalized Confusion Matrix ({n_unique}/{self.num_classes} classes present)')
         plt.xlabel('Predicted')
         plt.ylabel('Actual')
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
+        plt.xticks(rotation=45, ha='right', fontsize=8 if n_unique > 20 else 10)
+        plt.yticks(rotation=0, fontsize=8 if n_unique > 20 else 10)
         plt.tight_layout()
         plt.savefig(self.dirs['confusion_matrices'] / f'{self.save_prefix}_normalized_confusion_matrix.png', 
                    dpi=300, bbox_inches='tight')
         plt.close()
         
         # Plot raw counts confusion matrix for smaller datasets
-        if self.num_classes <= 20:
-            plt.figure(figsize=(max(12, self.num_classes * 0.5), max(10, self.num_classes * 0.4)))
+        if n_unique <= 20:
+            plt.figure(figsize=(fig_width, fig_height))
             sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                       xticklabels=self.classnames, yticklabels=self.classnames,
+                       xticklabels=present_classnames, yticklabels=present_classnames,
                        cbar_kws={'label': 'Count'})
-            plt.title('Confusion Matrix (Raw Counts)')
+            plt.title(f'Confusion Matrix - Raw Counts ({n_unique}/{self.num_classes} classes present)')
             plt.xlabel('Predicted')
             plt.ylabel('Actual')
             plt.xticks(rotation=45, ha='right')
@@ -341,11 +362,24 @@ class CLIPLoRAEvaluator:
             plt.close()
         
         # Save confusion matrix data
-        cm_df = pd.DataFrame(cm, index=self.classnames, columns=self.classnames)
+        cm_df = pd.DataFrame(cm, index=present_classnames, columns=present_classnames)
         cm_df.to_csv(self.dirs['confusion_matrices'] / f'{self.save_prefix}_confusion_matrix.csv')
         
-        cm_norm_df = pd.DataFrame(cm_normalized, index=self.classnames, columns=self.classnames)
+        cm_norm_df = pd.DataFrame(cm_normalized, index=present_classnames, columns=present_classnames)
         cm_norm_df.to_csv(self.dirs['confusion_matrices'] / f'{self.save_prefix}_confusion_matrix_normalized.csv')
+        
+        # Save a mapping of which classes were present
+        class_presence = {
+            'total_classes': self.num_classes,
+            'classes_in_test': n_unique,
+            'present_class_ids': unique_classes.tolist(),
+            'present_class_names': present_classnames,
+            'missing_class_ids': [i for i in range(self.num_classes) if i not in unique_classes],
+            'missing_class_names': [self.classnames[i] for i in range(self.num_classes) if i not in unique_classes]
+        }
+        
+        with open(self.dirs['confusion_matrices'] / f'{self.save_prefix}_class_presence.json', 'w') as f:
+            json.dump(class_presence, f, indent=2)
     
     def _perform_error_analysis(self):
         """Analyze prediction errors"""
@@ -584,6 +618,9 @@ class CLIPLoRAEvaluator:
         # Count samples per class
         unique_classes, counts = np.unique(y_true, return_counts=True)
         
+        # Get class names for classes that appear in test set
+        present_classnames = [self.classnames[i] for i in unique_classes]
+        
         # Sort by frequency
         sorted_indices = np.argsort(counts)[::-1]
         
@@ -591,19 +628,20 @@ class CLIPLoRAEvaluator:
         bars = plt.bar(range(len(counts)), counts[sorted_indices])
         
         # Only show labels for top classes if many classes
-        if self.num_classes > 30:
+        n_present = len(unique_classes)
+        if n_present > 30:
             xtick_indices = list(range(0, len(counts), max(1, len(counts)//20)))
             plt.xticks(xtick_indices, 
-                      [self.classnames[unique_classes[sorted_indices[i]]] for i in xtick_indices], 
+                      [present_classnames[sorted_indices[i]] for i in xtick_indices], 
                       rotation=45, ha='right')
         else:
             plt.xticks(range(len(counts)), 
-                      [self.classnames[i] for i in unique_classes[sorted_indices]], 
+                      [present_classnames[sorted_indices[i]] for i in range(len(counts))], 
                       rotation=45, ha='right')
         
         plt.xlabel('Species')
         plt.ylabel('Number of Samples')
-        plt.title('Test Set Class Distribution')
+        plt.title(f'Test Set Class Distribution ({n_present}/{self.num_classes} classes present)')
         plt.yscale('log')
         plt.grid(True, alpha=0.3, axis='y')
         
@@ -616,6 +654,15 @@ class CLIPLoRAEvaluator:
         plt.savefig(self.dirs['visualizations'] / f'{self.save_prefix}_class_distribution.png', 
                    dpi=300, bbox_inches='tight')
         plt.close()
+        
+        # Save class distribution data
+        class_dist_df = pd.DataFrame({
+            'class_id': unique_classes[sorted_indices],
+            'class_name': [present_classnames[i] for i in sorted_indices],
+            'count': counts[sorted_indices]
+        })
+        class_dist_df.to_csv(self.dirs['visualizations'] / f'{self.save_prefix}_class_distribution.csv', 
+                            index=False)
     
     def _plot_confidence_distributions(self):
         """Plot confidence distributions"""
@@ -995,7 +1042,7 @@ def evaluate_lora_comprehensive(args, clip_model, test_loader, dataset, save_pat
         top_k: Top-k accuracy to calculate
     
     Returns:
-        dict: Overall metrics
+        float: Accuracy value
     """
     # Determine output directory
     if save_path is None:
@@ -1032,4 +1079,4 @@ def evaluate_lora_comprehensive(args, clip_model, test_loader, dataset, save_pat
         if f'top_{k}_accuracy' in overall_metrics:
             print(f"  - Top-{k} Accuracy: {overall_metrics[f'top_{k}_accuracy']:.4f}")
     
-    return overall_metrics
+    return overall_metrics['accuracy']
