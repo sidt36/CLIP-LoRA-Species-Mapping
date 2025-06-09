@@ -141,6 +141,141 @@ def evaluate_lora(args, clip_model, loader, dataset):
     
     return acc
 
+def evaluate_lora_full(args, clip_model, loader, dataset, save_path=None, save_prefix="eval", top_k=5):
+    """
+    Comprehensive evaluation for CLIP-LoRA species classification.
+    Saves metrics, per-class results, error analysis, and confusion matrices in the same folder as the weights (.pth).
+    """
+    import os
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+    from sklearn.metrics import (
+        accuracy_score, f1_score, precision_score, recall_score,
+        confusion_matrix, classification_report, top_k_accuracy_score
+    )
+    import json
+
+    # --- Determine the correct output directory for saving ---
+    # Use the same logic as save_lora in loralib/utils.py
+    if save_path is None:
+        save_path = getattr(args, "save_path", None)
+    if save_path is not None:
+        backbone = args.backbone.replace('/', '').replace('-', '').lower()
+        save_dir = f'{save_path}/{backbone}/{args.dataset}/{args.shots}shots/seed{args.seed}'
+        output_dir = Path(save_dir)
+    else:
+        output_dir = Path(".")
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    # Prepare for evaluation
+    clip_model.eval()
+    device = next(clip_model.parameters()).device
+    classnames = dataset.classnames
+    template = dataset.template[0]
+    texts = [template.format(classname.replace('_', ' ')) for classname in classnames]
+    with torch.no_grad(), torch.amp.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", dtype=torch.float16):
+        texts = clip.tokenize(texts).to(device)
+        class_embeddings = clip_model.encode_text(texts)
+    text_features = class_embeddings / class_embeddings.norm(dim=-1, keepdim=True)
+
+    all_targets = []
+    all_predictions = []
+    all_probs = []
+    all_filenames = []
+
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Evaluating"):
+            # Support both dict and tuple batch
+            if isinstance(batch, dict):
+                images = batch['image'].to(device)
+                targets = batch.get('label', batch.get('species_index', None))
+                if targets is None:
+                    raise ValueError("Batch dict must contain 'label' or 'species_index'.")
+                targets = targets.to(device)
+                filenames = batch.get('filename', [""] * len(images))
+            else:
+                images, targets = batch
+                images, targets = images.to(device), targets.to(device)
+                filenames = [""] * len(images)
+
+            with torch.amp.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu", dtype=torch.float16):
+                image_features = clip_model.encode_image(images)
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            logits = image_features @ text_features.t()
+            probs = logits.softmax(dim=1)
+            preds = logits.argmax(dim=1)
+
+            all_targets.extend(targets.cpu().numpy())
+            all_predictions.extend(preds.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())
+            all_filenames.extend(filenames)
+
+    all_targets = np.array(all_targets)
+    all_predictions = np.array(all_predictions)
+    all_probs = np.array(all_probs)
+    all_filenames = np.array(all_filenames)
+
+    # Metrics
+    metrics = {}
+    metrics['accuracy'] = accuracy_score(all_targets, all_predictions)
+    metrics['f1_macro'] = f1_score(all_targets, all_predictions, average='macro')
+    metrics['f1_weighted'] = f1_score(all_targets, all_predictions, average='weighted')
+    metrics['precision_macro'] = precision_score(all_targets, all_predictions, average='macro', zero_division=0)
+    metrics['recall_macro'] = recall_score(all_targets, all_predictions, average='macro', zero_division=0)
+    metrics['precision_weighted'] = precision_score(all_targets, all_predictions, average='weighted', zero_division=0)
+    metrics['recall_weighted'] = recall_score(all_targets, all_predictions, average='weighted', zero_division=0)
+    metrics['balanced_accuracy'] = recall_score(all_targets, all_predictions, average='macro', zero_division=0)
+    if top_k > 1:
+        try:
+            metrics[f'top_{top_k}_accuracy'] = top_k_accuracy_score(all_targets, all_probs, k=top_k)
+        except Exception:
+            metrics[f'top_{top_k}_accuracy'] = 0.0
+
+    # Per-class metrics
+    per_class_report = classification_report(
+        all_targets, all_predictions, target_names=classnames, output_dict=True, zero_division=0
+    )
+    per_class_df = pd.DataFrame(per_class_report).T
+    per_class_df.to_csv(output_dir / f"{save_prefix}_per_class_metrics.csv")
+
+    # Confusion matrix
+    cm = confusion_matrix(all_targets, all_predictions)
+    cm_df = pd.DataFrame(cm, index=classnames, columns=classnames)
+    cm_df.to_csv(output_dir / f"{save_prefix}_confusion_matrix.csv")
+
+    # Save main metrics
+    with open(output_dir / f"{save_prefix}_metrics.json", "w") as f:
+        json.dump(metrics, f, indent=2)
+
+    # Save predictions
+    pred_df = pd.DataFrame({
+        "filename": all_filenames,
+        "true_label": [classnames[i] for i in all_targets],
+        "pred_label": [classnames[i] for i in all_predictions],
+        "true_label_id": all_targets,
+        "pred_label_id": all_predictions,
+        "correct": all_targets == all_predictions,
+        "confidence": all_probs.max(axis=1)
+    })
+    pred_df.to_csv(output_dir / f"{save_prefix}_predictions.csv", index=False)
+
+    # Error analysis: misclassified samples
+    misclassified = pred_df[~pred_df["correct"]]
+    misclassified.to_csv(output_dir / f"{save_prefix}_misclassified.csv", index=False)
+
+    # Print summary
+    print(f"\nEvaluation complete. Results saved to {output_dir}")
+    print(f"Accuracy: {metrics['accuracy']:.4f}")
+    print(f"Macro F1: {metrics['f1_macro']:.4f}")
+    print(f"Weighted F1: {metrics['f1_weighted']:.4f}")
+    if f'top_{top_k}_accuracy' in metrics:
+        print(f"Top-{top_k} Accuracy: {metrics[f'top_{top_k}_accuracy']:.4f}")
+
+    # Return metrics for further use
+    return metrics['accuracy']
+
+
 def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, test_loader):
     
     VALIDATION = True  # Enable validation by default
@@ -273,7 +408,7 @@ def run_lora(args, clip_model, logit_scale, dataset, train_loader, val_loader, t
     
     # Final evaluation on test set
     clip_model.eval()
-    final_acc_test = evaluate_lora(args, clip_model, test_loader, dataset)
+    final_acc_test = evaluate_lora_full(args, clip_model, test_loader, dataset)
     print("\n**** Training complete ****")
     print("**** Best validation accuracy: {:.2f} (epoch {}) ****".format(best_acc_val, best_epoch_val))
     print("**** Best model test accuracy: {:.2f} ****".format(best_acc_test))
