@@ -22,6 +22,7 @@ python image_annotator.py \
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Generate annotations for images using CLIP-LoRA model')
+    # Original parameters
     parser.add_argument('--backbone', type=str, default='ViT-B/32', help='CLIP backbone')
     parser.add_argument('--encoder', type=str, default='vision', choices=['vision', 'text', 'both'], help='Which encoder to use LoRA for')
     parser.add_argument('--rank', type=int, default=2, help='Rank for LoRA')
@@ -31,7 +32,23 @@ def parse_args():
     parser.add_argument('--output_file', type=str, default='instances_default.json', help='Output JSON file path')
     parser.add_argument('--template', type=str, default='a photo of a {}', help='Text template for zero-shot classification')
     
-    return parser.parse_args()
+    # Additional parameters needed by apply_lora and load_lora functions
+    parser.add_argument('--position', type=str, default='all', help='Which layers to adapt (all, top, bottom, etc.)')
+    parser.add_argument('--params', type=str, default='qkvo', help='Which attention parameters to adapt (q,k,v,o)')
+    parser.add_argument('--dropout_rate', type=float, default=0.0, help='Dropout rate for LoRA')
+    parser.add_argument('--dataset', type=str, default='custom', help='Dataset name (for loading weights)')
+    parser.add_argument('--shots', type=int, default=-1, help='Number of shots (for loading weights)')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed (for loading weights)')
+    parser.add_argument('--filename', type=str, default='lora_weights', help='Filename of LoRA weights')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for processing')
+    
+    # Ensure r is set correctly (rank is aliased to r in the apply_lora function)
+    args = parser.parse_args()
+    args.r = args.rank  # Set r equal to rank for compatibility
+    args.save_path = args.lora_path  # Set save_path equal to lora_path for loading
+    args.eval_only = True  # We're only doing evaluation/annotation
+    
+    return args
 
 
 def get_species_categories():
@@ -139,6 +156,26 @@ def generate_center_bbox(image_path, horizontal_crop_ratio=0.5):
     return [x, y, crop_width, crop_height]
 
 
+def process_batch_of_images(clip_model, images, image_paths, text_features, device):
+    """
+    Process a batch of images with the CLIP-LoRA model
+    Returns: predictions, confidence scores
+    """
+    with torch.no_grad():
+        with torch.amp.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=torch.float16):
+            image_features = clip_model.encode_image(images)
+        
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        cosine_similarity = image_features @ text_features.t()
+        
+        # Get predictions and confidence scores
+        predictions = cosine_similarity.argmax(dim=1)
+        scores = cosine_similarity.softmax(dim=1)
+        confidence_scores = torch.gather(scores, 1, predictions.unsqueeze(1)).squeeze(1)
+        
+        return predictions.cpu().numpy(), confidence_scores.cpu().numpy()
+
+
 def main():
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -147,15 +184,48 @@ def main():
     print(f"Loading CLIP model with backbone {args.backbone}...")
     clip_model, preprocess = clip.load(args.backbone, device=device)
     
-    # Apply LoRA to the model
-    print(f"Applying LoRA with rank {args.rank}, alpha {args.alpha}...")
-    args.save_path = args.lora_path  # Set save_path for loading
-    list_lora_layers = apply_lora(args, clip_model)
-    clip_model = clip_model.to(device)
-    
-    # Load trained LoRA weights
-    print(f"Loading LoRA weights from {args.lora_path}...")
-    load_lora(args, list_lora_layers)
+    try:
+        # Apply LoRA to the model
+        print(f"Applying LoRA with rank {args.rank}, alpha {args.alpha}, position {args.position}, params {args.params}...")
+        list_lora_layers = apply_lora(args, clip_model)
+        clip_model = clip_model.to(device)
+        
+        # Load trained LoRA weights
+        print(f"Loading LoRA weights from {args.lora_path}...")
+        try:
+            load_lora(args, list_lora_layers)
+        except (FileNotFoundError, ValueError) as e:
+            # If the standard path fails, try a direct path
+            print(f"Error loading with standard path: {e}")
+            print("Trying direct path loading...")
+            # Try to load the weights directly
+            if os.path.isfile(args.lora_path):
+                loaded_data = torch.load(args.lora_path)
+                weights = loaded_data['weights']
+                for i, layer in enumerate(list_lora_layers):
+                    if i >= len(weights):
+                        print(f"Warning: Not enough layers in weights file. Expected at least {i+1}, found {len(weights)}")
+                        break
+                    layer_weights = weights[f'layer_{i}']
+                    if 'q' in args.params and 'q_proj' in layer_weights:
+                        layer.q_proj.w_lora_A.data.copy_(layer_weights['q_proj']['w_lora_A'])
+                        layer.q_proj.w_lora_B.data.copy_(layer_weights['q_proj']['w_lora_B'])
+                    if 'k' in args.params and 'k_proj' in layer_weights:
+                        layer.k_proj.w_lora_A.data.copy_(layer_weights['k_proj']['w_lora_A'])
+                        layer.k_proj.w_lora_B.data.copy_(layer_weights['k_proj']['w_lora_B'])
+                    if 'v' in args.params and 'v_proj' in layer_weights:
+                        layer.v_proj.w_lora_A.data.copy_(layer_weights['v_proj']['w_lora_A'])
+                        layer.v_proj.w_lora_B.data.copy_(layer_weights['v_proj']['w_lora_B'])
+                    if 'o' in args.params and 'proj' in layer_weights:
+                        layer.proj.w_lora_A.data.copy_(layer_weights['proj']['w_lora_A'])
+                        layer.proj.w_lora_B.data.copy_(layer_weights['proj']['w_lora_B'])
+                print(f"LoRA weights loaded directly from {args.lora_path}")
+            else:
+                print(f"Error: Could not find LoRA weights file at {args.lora_path}")
+                return
+    except Exception as e:
+        print(f"Error during LoRA application: {e}")
+        print("Continuing without LoRA weights...")
     
     # Get species categories
     categories = get_species_categories()
@@ -183,39 +253,58 @@ def main():
     
     print(f"Found {len(image_paths)} images to process")
     
-    # Process images and generate predictions
-    all_predictions = []
-    all_scores = []
-    all_bboxes = []
+    # Process images in batches
+    image_data = []
+    batch_size = args.batch_size
     
-    for image_path in tqdm(image_paths):
-        # Generate center crop bounding box
-        bbox = generate_center_bbox(image_path)
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i:i+batch_size]
+        batch_images = []
+        batch_bboxes = []
+        valid_paths = []
         
-        # Load and preprocess image
-        image = Image.open(image_path).convert("RGB")
-        preprocessed_image = preprocess(image).unsqueeze(0).to(device)
+        # Load and preprocess images
+        for path in batch_paths:
+            try:
+                # Generate center crop bounding box
+                bbox = generate_center_bbox(path)
+                batch_bboxes.append(bbox)
+                
+                # Preprocess image
+                image = Image.open(path).convert("RGB")
+                batch_images.append(preprocess(image))
+                valid_paths.append(path)
+            except Exception as e:
+                print(f"Error processing {path}: {e}")
+                continue
         
-        # Get image features and predictions
-        with torch.no_grad():
-            with torch.amp.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=torch.float16):
-                image_features = clip_model.encode_image(preprocessed_image)
+        if not batch_images:
+            continue
             
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-            cosine_similarity = image_features @ text_features.t()
-            
-            # Get prediction and confidence score
-            prediction = cosine_similarity.argmax(dim=1)[0].item()
-            scores = cosine_similarity[0].softmax(dim=0)
-            confidence = scores[prediction].item()
+        # Stack images into a batch tensor
+        batch_tensor = torch.stack(batch_images).to(device)
         
-        all_predictions.append(prediction)
-        all_scores.append(confidence)
-        all_bboxes.append(bbox)
+        # Get predictions for batch
+        predictions, scores = process_batch_of_images(clip_model, batch_tensor, valid_paths, text_features, device)
+        
+        # Store data for each image
+        for j, (path, pred, score, bbox) in enumerate(zip(valid_paths, predictions, scores, batch_bboxes)):
+            image_data.append({
+                'image_path': path,
+                'prediction': int(pred),
+                'score': float(score),
+                'bbox': bbox
+            })
+        
+        # Print progress
+        print(f"Processed {min(i + batch_size, len(image_paths))}/{len(image_paths)} images")
     
     # Create COCO annotations
     print("Creating COCO annotations...")
-    coco_json = create_coco_annotations(image_paths, all_predictions, all_scores, all_bboxes)
+    coco_json = create_coco_annotations([d['image_path'] for d in image_data], 
+                                       [d['prediction'] for d in image_data],
+                                       [d['score'] for d in image_data],
+                                       [d['bbox'] for d in image_data])
     
     # Save to file
     output_path = args.output_file
@@ -223,7 +312,24 @@ def main():
         json.dump(coco_json, f, indent=2)
     
     print(f"Annotations saved to {output_path}")
-    print(f"Processed {len(image_paths)} images")
+    print(f"Processed {len(image_data)} images")
+    
+    # Print statistics
+    species_counts = {}
+    for data in image_data:
+        pred = data['prediction']
+        if pred < len(categories):
+            species_name = categories[pred]["name"]
+            if species_name not in species_counts:
+                species_counts[species_name] = 0
+            species_counts[species_name] += 1
+    
+    print("\nSpecies distribution:")
+    for species, count in sorted(species_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
+        print(f"{species}: {count} images")
+    
+    if len(species_counts) > 10:
+        print(f"... and {len(species_counts) - 10} more species")
 
 
 if __name__ == "__main__":
