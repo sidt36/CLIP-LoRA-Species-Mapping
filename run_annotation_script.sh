@@ -3,4 +3,4 @@ python image_annotater.py \
   --image_dir /app/DATASET/Rajasthan_Zones_v4_resampled/images \
   --output_file instances_default_new.json \
   --encoder both \
-  --backbone bioclip
+  --backbone bio clip
