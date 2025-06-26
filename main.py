@@ -6,6 +6,7 @@ from datasets.utils import build_data_loader
 
 from utils import *
 from run_utils import *
+from run_utils import subsample_training_data
 from lora import run_lora
 
 
@@ -25,6 +26,11 @@ def main():
     print("Preparing dataset.")
         
     dataset = build_dataset(args.dataset, args.root_path, args.shots, preprocess)
+    
+    # Apply subsampling if specified
+    if args.subsample_ratio is not None:
+        print(f"Applying subsampling with ratio: {args.subsample_ratio}")
+        dataset = subsample_training_data(dataset, args.subsample_ratio, seed=args.seed)
     
     if args.dataset == 'imagenet':
         val_loader = torch.utils.data.DataLoader(dataset.val, batch_size=256, num_workers=4, shuffle=False, pin_memory=True)

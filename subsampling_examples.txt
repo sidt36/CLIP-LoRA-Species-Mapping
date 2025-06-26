@@ -1,0 +1,16 @@
+# Example usage of the subsampling feature
+
+# To use 10% of the training data:
+python main.py --dataset gsv --subsample_ratio 0.1 --seed 42
+
+# To use 20% of the training data:
+python main.py --dataset gsv --subsample_ratio 0.2 --seed 42
+
+# To use 50% of the training data:
+python main.py --dataset gsv --subsample_ratio 0.5 --seed 42
+
+# To use the full training data (default behavior):
+python main.py --dataset gsv
+
+# Note: The same seed ensures that smaller subsets are nested within larger ones
+# For example, all samples in the 10% subset will also be in the 20% subset
