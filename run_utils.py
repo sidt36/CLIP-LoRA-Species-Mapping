@@ -98,11 +98,17 @@ def subsample_training_data(dataset, subsample_ratio, seed=42):
     # We need to create a copy and modify its train_x
     import copy
     subsampled_dataset = copy.deepcopy(dataset)
-    subsampled_dataset._train_x = subsampled_train_x
+    subsampled_dataset.train_x = subsampled_train_x
     
-    # Update the number of classes and class mappings in case some classes were removed
-    subsampled_dataset._num_classes = subsampled_dataset.get_num_classes(subsampled_train_x)
-    subsampled_dataset._lab2cname, subsampled_dataset._classnames = subsampled_dataset.get_lab2cname(subsampled_train_x)
+    # Update class information if the dataset has the appropriate methods
+    if hasattr(subsampled_dataset, 'get_num_classes') and hasattr(subsampled_dataset, 'get_lab2cname'):
+        # For DatasetBase subclasses
+        subsampled_dataset._num_classes = subsampled_dataset.get_num_classes(subsampled_train_x)
+        subsampled_dataset._lab2cname, subsampled_dataset._classnames = subsampled_dataset.get_lab2cname(subsampled_train_x)
+    else:
+        # For other dataset types like TreeSpeciesDataset, the classnames should remain the same
+        # since we're keeping at least one sample per class
+        pass
     
     print(f"Subsampled training data: {len(original_train_x)} -> {len(subsampled_train_x)} samples ({subsample_ratio:.1%})")
     
